@@ -1,0 +1,59 @@
+<!DOCTYPE html>
+<html lang="nl">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>LED Dashboard</title>
+  <link rel="stylesheet" href="styles.css" />
+</head>
+<body>
+  <header class="topbar">
+    <div>
+      <h1>LED Dashboard</h1>
+      <p>Simulator • mobiel + desktop</p>
+    </div>
+    <div class="status-pill"><span id="conn-dot" class="dot ok"></span><span id="conn-text">Simulator actief</span></div>
+  </header>
+
+  <main class="grid">
+    <section class="card card-wide">
+      <h2>Systeemstatus</h2>
+      <div class="status-grid">
+        <div class="stat-box"><span>Licht</span><strong id="lux-val">--%</strong></div>
+        <div class="stat-box"><span>Temperatuur</span><strong id="temp-val">--°C</strong></div>
+        <div class="stat-box"><span>Modus</span><strong id="mode-val">--</strong></div>
+        <div class="stat-box"><span>Helderheid</span><strong id="br-val">--%</strong></div>
+      </div>
+      <p class="small" id="updated-at">Laatste update: --</p>
+    </section>
+
+    <section class="card">
+      <h2>Kleur & Modus</h2>
+      <div class="color-grid" id="mode-buttons"></div>
+    </section>
+
+    <section class="card">
+      <h2>Automatisatie</h2>
+      <label class="switch-row">
+        <span>Auto-Lux</span>
+        <input type="checkbox" id="auto-lux" />
+      </label>
+      <label class="small" for="brightness">Master helderheid</label>
+      <input type="range" id="brightness" min="1" max="100" value="50" />
+      <p class="small">Werkt alleen handmatig wanneer Auto-Lux uit staat.</p>
+    </section>
+
+    <section class="card">
+      <h2>Effecten</h2>
+      <div id="effects-list"></div>
+    </section>
+
+    <section class="card card-wide">
+      <h2>LED Preview</h2>
+      <canvas id="led-canvas" width="140" height="1"></canvas>
+    </section>
+  </main>
+
+  <script src="app.js"></script>
+</body>
+</html>
