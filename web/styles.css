@@ -1,20 +1,52 @@
 :root {
-  --bg: #0b1220;
-  --surface: #172132;
-  --surface-2: #0f1729;
-  --text: #e2e8f0;
-  --muted: #94a3b8;
+  --bg: #f5f7fb;
+  --surface: #ffffff;
+  --surface-2: #fff1f3;
+  --text: #0f172a;
+  --muted: #4b5563;
   --accent: #e30613;
   --ok: #22c55e;
   --warn: #f59e0b;
   --danger: #ef4444;
-  --border: #2a3a54;
+  --border: #f0c9cd;
+  --chip-bg: #fff6f7;
+  --chip-border: #f0c9cd;
+  --chip-text: #991b1b;
+  --status-pill-bg: rgba(255, 255, 255, .2);
+  --status-pill-text: #ffffff;
+  --card-shadow: 0 8px 20px rgba(227, 6, 19, .08);
+  --row-sep: #f2d4d8;
+  --effect-bg: #ffe8ec;
+  --effect-border: #f6b7c1;
+  --effect-text: #9f1239;
+  --bg-glow: #ffd8dd;
+}
+@media (prefers-color-scheme: dark) {
+  :root {
+    --bg: #0a0a0b;
+    --surface: #111114;
+    --surface-2: #17171b;
+    --text: #f8fafc;
+    --muted: #a8b0bd;
+    --border: #2f2f37;
+    --chip-bg: #15151a;
+    --chip-border: #32323b;
+    --chip-text: #e2e8f0;
+    --status-pill-bg: rgba(0, 0, 0, .35);
+    --status-pill-text: #f8fafc;
+    --card-shadow: 0 10px 22px rgba(0, 0, 0, .35);
+    --row-sep: #24242c;
+    --effect-bg: #1c1c24;
+    --effect-border: #333343;
+    --effect-text: #d0d7e5;
+    --bg-glow: #2a0c12;
+  }
 }
 * { box-sizing: border-box; }
 body {
   margin: 0;
   font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
-  background: radial-gradient(circle at top right, #1a263b 0%, var(--bg) 40%);
+  background: radial-gradient(circle at top right, var(--bg-glow) 0%, var(--bg) 40%);
   color: var(--text);
   min-height: 100vh;
 }
@@ -36,10 +68,30 @@ body {
   border-radius: 14px;
   box-shadow: 0 16px 35px rgba(0, 0, 0, .28);
 }
+.brand-wrap {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+.vives-logo {
+  min-width: 88px;
+  height: 36px;
+  border-radius: 8px;
+  border: 1px solid rgba(255, 255, 255, .55);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-weight: 900;
+  letter-spacing: .12em;
+  font-size: 12px;
+  color: #fff;
+  background: rgba(255, 255, 255, .12);
+}
 .topbar h1 { margin: 0; font-size: 20px; }
 .topbar p { margin: 4px 0 0; font-size: 12px; opacity: .85; }
 .status-pill {
-  background: rgba(0,0,0,.3);
+  background: var(--status-pill-bg);
+  color: var(--status-pill-text);
   border-radius: 999px;
   padding: 8px 12px;
   font-size: 12px;
@@ -62,7 +114,7 @@ body {
   border: 1px solid var(--border);
   border-radius: 14px;
   padding: 16px;
-  box-shadow: 0 10px 25px rgba(0, 0, 0, .2);
+  box-shadow: var(--card-shadow);
 }
 .card-wide { grid-column: span 2; }
 @media (max-width: 900px) {
@@ -110,8 +162,8 @@ body {
   flex-direction: column;
   gap: 3px;
   padding: 8px 10px;
-  background: #0c1525;
-  border: 1px solid var(--border);
+  background: var(--chip-bg);
+  border: 1px solid var(--chip-border);
   border-radius: 10px;
 }
 .chip small {
@@ -122,6 +174,7 @@ body {
 }
 .chip strong {
   font-size: 13px;
+  color: var(--chip-text);
 }
 
 .small { font-size: 12px; color: var(--muted); }
@@ -168,7 +221,7 @@ body {
   align-items: center;
   gap: 10px;
   padding: 8px 0;
-  border-bottom: 1px solid #243041;
+  border-bottom: 1px solid var(--row-sep);
 }
 .switch-row:last-child, .effect-row:last-child { border-bottom: none; }
 
@@ -187,9 +240,9 @@ body {
   text-transform: uppercase;
   border-radius: 999px;
   padding: 4px 8px;
-  background: #22314a;
-  border: 1px solid #365075;
-  color: #b7c9e2;
+  background: var(--effect-bg);
+  border: 1px solid var(--effect-border);
+  color: var(--effect-text);
 }
 
 .effect-state.on {
@@ -200,12 +253,31 @@ body {
 
 input[type="range"] { width: 100%; accent-color: var(--accent); }
 
-#led-canvas {
-  width: 100%;
-  height: 36px;
-  display: block;
-  border-radius: 8px;
+#led-strip {
+  display: grid;
+  grid-template-columns: repeat(35, 12px);
+  gap: 4px;
+  justify-content: center;
+  padding: 10px;
+  border-radius: 10px;
   border: 1px solid var(--border);
-  image-rendering: pixelated;
+  background: #070709;
+}
+
+.led-pixel {
+  width: 12px;
+  height: 12px;
   background: #000;
+  border: 1px solid rgba(255, 255, 255, .08);
+}
+
+@media (max-width: 640px) {
+  .brand-wrap {
+    gap: 8px;
+  }
+  .vives-logo {
+    min-width: 74px;
+    height: 32px;
+    font-size: 11px;
+  }
 }

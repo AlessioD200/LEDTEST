@@ -8,9 +8,12 @@
 </head>
 <body>
   <header class="topbar shell">
-    <div class="brand">
-      <h1>LED Dashboard</h1>
-      <p>Realtime simulator • mobiel + desktop</p>
+    <div class="brand-wrap">
+      <div class="vives-logo" aria-label="VIVES logo">VIVES</div>
+      <div class="brand">
+        <h1>LED Dashboard</h1>
+        <p>Realtime simulator • mobiel + desktop</p>
+      </div>
     </div>
     <div class="status-pill">
       <span id="conn-dot" class="dot ok"></span>
@@ -61,7 +64,7 @@
 
     <section class="card card-wide">
       <h2>LED Preview</h2>
-      <canvas id="led-canvas" width="140" height="1"></canvas>
+      <div id="led-strip" aria-label="LED preview"></div>
     </section>
   </main>
 

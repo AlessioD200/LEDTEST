@@ -28,13 +28,15 @@ const ui = {
   mode: document.getElementById("mode-val"),
   br: document.getElementById("br-val"),
   updated: document.getElementById("updated-at"),
-  canvas: document.getElementById("led-canvas"),
+  ledStrip: document.getElementById("led-strip"),
   statusConn: document.getElementById("status-conn"),
   statusAuto: document.getElementById("status-auto"),
   statusEffects: document.getElementById("status-effects"),
   statusControl: document.getElementById("status-control"),
   effectsSummary: document.getElementById("effects-summary")
 };
+
+const ledPixels = [];
 
 let currentState = {
   mode: "white",
@@ -152,18 +154,27 @@ function setConn(ok, text) {
   }
 }
 
+function buildLedPreview() {
+  if (!ui.ledStrip) return;
+  ui.ledStrip.innerHTML = "";
+  ledPixels.length = 0;
+  for (let i = 0; i < 140; i++) {
+    const pixel = document.createElement("span");
+    pixel.className = "led-pixel";
+    ui.ledStrip.appendChild(pixel);
+    ledPixels.push(pixel);
+  }
+}
+
 function drawLED(colors) {
-  const ctx = ui.canvas.getContext("2d");
   const leds = Array.isArray(colors) ? colors : [];
-  const img = ctx.createImageData(140, 1);
   for (let i = 0; i < 140; i++) {
     const c = leds[i] || [0, 0, 0];
-    img.data[i * 4 + 0] = c[0] || 0;
-    img.data[i * 4 + 1] = c[1] || 0;
-    img.data[i * 4 + 2] = c[2] || 0;
-    img.data[i * 4 + 3] = 255;
+    const pixel = ledPixels[i];
+    if (pixel) {
+      pixel.style.backgroundColor = `rgb(${c[0] || 0}, ${c[1] || 0}, ${c[2] || 0})`;
+    }
   }
-  ctx.putImageData(img, 0, 0);
 }
 
 function clamp(v, lo = 0, hi = 255) {
@@ -262,6 +273,7 @@ ui.brightness.onchange = () => {
 
 buildModes();
 buildEffects();
+buildLedPreview();
 renderState();
 setConn(true, "Simulator actief");
 tick();
