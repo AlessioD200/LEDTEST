@@ -28,7 +28,12 @@ const ui = {
   mode: document.getElementById("mode-val"),
   br: document.getElementById("br-val"),
   updated: document.getElementById("updated-at"),
-  canvas: document.getElementById("led-canvas")
+  canvas: document.getElementById("led-canvas"),
+  statusConn: document.getElementById("status-conn"),
+  statusAuto: document.getElementById("status-auto"),
+  statusEffects: document.getElementById("status-effects"),
+  statusControl: document.getElementById("status-control"),
+  effectsSummary: document.getElementById("effects-summary")
 };
 
 let currentState = {
@@ -79,8 +84,16 @@ function buildEffects() {
   EFFECTS.forEach((e) => {
     const row = document.createElement("label");
     row.className = "effect-row";
-    const left = document.createElement("span");
-    left.textContent = e.label;
+    const left = document.createElement("div");
+    left.className = "effect-left";
+    const leftText = document.createElement("span");
+    leftText.textContent = e.label;
+    const stateBadge = document.createElement("span");
+    stateBadge.className = "effect-state";
+    stateBadge.id = `effect-state-${e.key}`;
+    stateBadge.textContent = "Uit";
+    left.appendChild(leftText);
+    left.appendChild(stateBadge);
     const check = document.createElement("input");
     check.type = "checkbox";
     check.id = `effect-${e.key}`;
@@ -92,6 +105,10 @@ function buildEffects() {
     row.appendChild(check);
     ui.effectsList.appendChild(row);
   });
+}
+
+function activeEffectsCount() {
+  return Object.values(currentState.effects || {}).filter(Boolean).length;
 }
 
 function renderState() {
@@ -109,7 +126,19 @@ function renderState() {
   EFFECTS.forEach((e) => {
     const el = document.getElementById(`effect-${e.key}`);
     if (el) el.checked = !!currentState.effects?.[e.key];
+    const badge = document.getElementById(`effect-state-${e.key}`);
+    if (badge) {
+      const isOn = !!currentState.effects?.[e.key];
+      badge.textContent = isOn ? "Actief" : "Uit";
+      badge.classList.toggle("on", isOn);
+    }
   });
+
+  const effectsCount = activeEffectsCount();
+  if (ui.statusAuto) ui.statusAuto.textContent = currentState.auto ? "Aan" : "Uit";
+  if (ui.statusEffects) ui.statusEffects.textContent = effectsCount ? `${effectsCount} actief` : "Geen actief";
+  if (ui.statusControl) ui.statusControl.textContent = currentState.auto ? "Sensor gestuurd" : "Handmatig";
+  if (ui.effectsSummary) ui.effectsSummary.textContent = `Actief: ${effectsCount}`;
 
   ui.updated.textContent = `Laatste update: ${new Date().toLocaleTimeString()}`;
 }
@@ -118,6 +147,9 @@ function setConn(ok, text) {
   ui.connDot.classList.remove("ok", "err");
   ui.connDot.classList.add(ok ? "ok" : "err");
   ui.connText.textContent = text;
+  if (ui.statusConn) {
+    ui.statusConn.textContent = ok ? "Actief" : "Verbroken";
+  }
 }
 
 function drawLED(colors) {

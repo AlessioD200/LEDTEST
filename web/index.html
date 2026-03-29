@@ -7,33 +7,43 @@
   <link rel="stylesheet" href="styles.css" />
 </head>
 <body>
-  <header class="topbar">
-    <div>
+  <header class="topbar shell">
+    <div class="brand">
       <h1>LED Dashboard</h1>
-      <p>Simulator • mobiel + desktop</p>
+      <p>Realtime simulator • mobiel + desktop</p>
     </div>
-    <div class="status-pill"><span id="conn-dot" class="dot ok"></span><span id="conn-text">Simulator actief</span></div>
+    <div class="status-pill">
+      <span id="conn-dot" class="dot ok"></span>
+      <span id="conn-text">Simulator actief</span>
+    </div>
   </header>
 
-  <main class="grid">
+  <main class="shell grid">
     <section class="card card-wide">
-      <h2>Systeemstatus</h2>
+      <h2>Status Overzicht</h2>
       <div class="status-grid">
         <div class="stat-box"><span>Licht</span><strong id="lux-val">--%</strong></div>
         <div class="stat-box"><span>Temperatuur</span><strong id="temp-val">--°C</strong></div>
         <div class="stat-box"><span>Modus</span><strong id="mode-val">--</strong></div>
         <div class="stat-box"><span>Helderheid</span><strong id="br-val">--%</strong></div>
       </div>
+      <div class="chip-row" aria-label="Huidige statussen">
+        <span class="chip"><small>Verbinding</small><strong id="status-conn">Actief</strong></span>
+        <span class="chip"><small>Auto-Lux</small><strong id="status-auto">Uit</strong></span>
+        <span class="chip"><small>Effecten</small><strong id="status-effects">Geen actief</strong></span>
+        <span class="chip"><small>Regeling</small><strong id="status-control">Handmatig</strong></span>
+      </div>
       <p class="small" id="updated-at">Laatste update: --</p>
     </section>
 
     <section class="card">
-      <h2>Kleur & Modus</h2>
+      <h2>Functie: Kleur & Modus</h2>
+      <p class="small">Selecteer exact één basismodus.</p>
       <div class="color-grid" id="mode-buttons"></div>
     </section>
 
     <section class="card">
-      <h2>Automatisatie</h2>
+      <h2>Functie: Automatisatie</h2>
       <label class="switch-row">
         <span>Auto-Lux</span>
         <input type="checkbox" id="auto-lux" />
@@ -44,7 +54,8 @@
     </section>
 
     <section class="card">
-      <h2>Effecten</h2>
+      <h2>Functie: Effecten</h2>
+      <p class="small" id="effects-summary">Actief: 0</p>
       <div id="effects-list"></div>
     </section>
 
