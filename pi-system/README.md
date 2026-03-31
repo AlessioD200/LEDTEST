@@ -182,15 +182,15 @@ This means after reboot:
 
 ## 9) Native Raspberry Pi fullscreen app (recommended)
 
-If you want a real native fullscreen app (no browser kiosk), use the Tkinter controller:
+If you want a real native fullscreen app (no browser kiosk), use the Kivy controller:
 
-- app file: `native-controller/app.py`
+- app file: `native-controller/app_kivy.py`
 - autostart desktop file: `deploy/native-app/led-controller.desktop`
 
 Install on Pi (after copying `/opt/led-pi`):
 
 ```bash
-chmod +x /opt/led-pi/native-controller/app.py
+chmod +x /opt/led-pi/native-controller/app_kivy.py
 cp /opt/led-pi/deploy/native-app/led-controller.desktop ~/.config/autostart/
 sudo systemctl disable led-kiosk.service || true
 sudo systemctl stop led-kiosk.service || true
@@ -202,7 +202,7 @@ By default the app connects to `http://127.0.0.1:3001`.
 If backend runs on another machine, set env var in the desktop entry `Exec` line:
 
 ```ini
-Exec=env LED_BACKEND_URL=http://192.168.0.201:3001 /usr/bin/python3 /opt/led-pi/native-controller/app.py
+Exec=env LED_BACKEND_URL=http://192.168.0.201:3001 /usr/bin/python3 /opt/led-pi/native-controller/app_kivy.py
 ```
 
 This app is touch-first and runs fullscreen at login.
@@ -213,15 +213,17 @@ If you want the Pi to run everything locally right now (native app + local backe
 
 ```bash
 sudo mkdir -p /opt/led-pi/native-controller /opt/led-pi/deploy/native-app
-sudo cp /tmp/app.py /opt/led-pi/native-controller/app.py
+sudo cp /tmp/app_kivy.py /opt/led-pi/native-controller/app_kivy.py
 sudo cp /tmp/led-controller.desktop /opt/led-pi/deploy/native-app/led-controller.desktop
 sudo cp /tmp/install-native-controller.sh /opt/led-pi/deploy/native-app/install-native-controller.sh
-chmod +x /opt/led-pi/native-controller/app.py /opt/led-pi/deploy/native-app/install-native-controller.sh
+chmod +x /opt/led-pi/native-controller/app_kivy.py /opt/led-pi/deploy/native-app/install-native-controller.sh
 /opt/led-pi/deploy/native-app/install-native-controller.sh
 sudo reboot
 ```
 
 After reboot the native fullscreen touch app starts automatically and controls the local simulator backend on `127.0.0.1:3001`.
+
+The Kivy app includes an `Info & Updates` page that checks for a staged update file in `/tmp/app_kivy.py` and can install it locally without `.git`.
 
 ### 9.2 One-command deploy from Mac
 
@@ -241,8 +243,8 @@ Optional custom user/ip:
 
 What it does:
 
-- compile check for `pi-system/native-controller/app.py`
-- upload to `/tmp/app.py` on Pi
-- copy to `/home/<user>/LEDTEST/pi-system/native-controller/app.py`
+- compile check for `pi-system/native-controller/app_kivy.py`
+- upload to `/tmp/app_kivy.py` on Pi
+- copy to `/home/<user>/LEDTEST/pi-system/native-controller/app_kivy.py`
 - restart the native app
 - print process + last log lines

@@ -11,14 +11,14 @@ mkdir -p "$APP_DIR"
 mkdir -p "$ASSET_DIR"
 mkdir -p "$AUTOSTART_DIR"
 
-SOURCE_APP="/tmp/app.py"
+SOURCE_APP="/tmp/app_kivy.py"
 if [[ -f "$SOURCE_APP" ]]; then
-	cp "$SOURCE_APP" "$APP_DIR/app.py"
-elif [[ ! -f "$APP_DIR/app.py" ]]; then
-	echo "Missing app.py in /tmp and $APP_DIR"
+	cp "$SOURCE_APP" "$APP_DIR/app_kivy.py"
+elif [[ ! -f "$APP_DIR/app_kivy.py" ]]; then
+	echo "Missing app_kivy.py in /tmp and $APP_DIR"
 	exit 1
 fi
-chmod +x "$APP_DIR/app.py"
+chmod +x "$APP_DIR/app_kivy.py"
 
 if [[ -f "/tmp/Logo-v.png" ]]; then
 	cp "/tmp/Logo-v.png" "$ASSET_DIR/Logo-v.png"
@@ -49,7 +49,7 @@ else
 fi
 
 sudo apt update
-sudo apt install -y python3-tk x11-xserver-utils unclutter
+sudo apt install -y python3-kivy x11-xserver-utils unclutter
 
 cd "$BACKEND_DIR"
 npm install --omit=dev
