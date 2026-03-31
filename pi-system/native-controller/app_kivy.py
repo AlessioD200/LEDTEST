@@ -67,6 +67,15 @@ def clamp(value, minimum, maximum):
     return max(minimum, min(maximum, value))
 
 
+def to_float(value):
+    if isinstance(value, (int, float)):
+        return float(value)
+    try:
+        return float(str(value).strip())
+    except (TypeError, ValueError):
+        return None
+
+
 def hsv_to_rgb(hue, saturation, value):
     index = int(hue * 6)
     fraction = hue * 6 - index
@@ -187,8 +196,7 @@ class SparklineWidget(Widget):
 
             minimum = min(self.values)
             maximum = max(self.values)
-            if abs(maximum - minimum) < 1e-6:
-                maximum = minimum + 1
+            flat_series = abs(maximum - minimum) < 1e-6
 
             pad_x = dp(8)
             pad_y = dp(10)
@@ -198,7 +206,10 @@ class SparklineWidget(Widget):
 
             for index, value in enumerate(self.values):
                 x = self.x + pad_x + usable_w * (index / max(1, len(self.values) - 1))
-                ratio = (value - minimum) / (maximum - minimum)
+                if flat_series:
+                    ratio = 0.5
+                else:
+                    ratio = (value - minimum) / (maximum - minimum)
                 y = self.y + pad_y + usable_h * ratio
                 points.extend([x, y])
 
@@ -226,17 +237,25 @@ class RoundButton(Button):
         kwargs["background_color"] = (0, 0, 0, 0)
         kwargs.setdefault("color", TEXT)
         kwargs.setdefault("bold", True)
+        kwargs.setdefault("halign", "center")
+        kwargs.setdefault("valign", "middle")
         super().__init__(**kwargs)
         self.radius = dp(radius)
         self.base_color = bg_color
         self.border_color = border_color
+        self.padding = [dp(10), dp(8)]
         with self.canvas.before:
             self._bg_color_instr = Color(*self.base_color)
             self._bg = RoundedRectangle(radius=[self.radius])
             self._border_color_instr = Color(*self.border_color)
             self._border = Line(rounded_rectangle=(0, 0, 0, 0, self.radius), width=1)
         self.bind(pos=self._redraw, size=self._redraw, state=self._redraw)
+        self.bind(size=self._sync_text_box)
+        self._sync_text_box()
         self._redraw()
+
+    def _sync_text_box(self, *_args):
+        self.text_size = (max(0, self.width - dp(20)), max(0, self.height - dp(8)))
 
     def _redraw(self, *_args):
         if self.state == "down":
@@ -682,8 +701,8 @@ class LEDControllerApp(App):
         applied = device.get("applied") if isinstance(device.get("applied"), dict) else {}
         live = applied if applied else desired
 
-        temp = telemetry.get("temperature")
-        lux = telemetry.get("lux")
+        temp = to_float(telemetry.get("temperature"))
+        lux = to_float(telemetry.get("lux"))
         live_mode = live.get("mode", desired.get("mode", "white"))
         live_effect = live.get("effect", desired.get("effect", "none"))
         live_brightness = int(live.get("brightness", desired.get("brightness", 50)))
@@ -702,20 +721,20 @@ class LEDControllerApp(App):
         self.preview_widget.redraw()
 
         self.online_value.text = "Online" if device.get("online", False) else "Offline"
-        self.temp_value.text = f"{temp:.1f} C" if isinstance(temp, (int, float)) else "--"
-        self.lux_value.text = f"{lux:.0f} lux" if isinstance(lux, (int, float)) else "--"
+        self.temp_value.text = f"{temp:.1f} C" if temp is not None else "--"
+        self.lux_value.text = f"{lux:.0f} lux" if lux is not None else "--"
         self.mode_live_value.text = str(live_mode).upper()
         self.brightness_live_value.text = f"{live_brightness}%"
         self.effect_live_value.text = str(live_effect).upper()
 
-        self.temp_gauge.set_value(float(temp) if isinstance(temp, (int, float)) else None)
-        self.lux_gauge.set_value(float(lux) if isinstance(lux, (int, float)) else None)
+        self.temp_gauge.set_value(temp)
+        self.lux_gauge.set_value(lux)
 
-        if isinstance(temp, (int, float)):
-            self.temp_history.append(float(temp))
+        if temp is not None:
+            self.temp_history.append(temp)
             self.temp_spark.set_values(list(self.temp_history))
-        if isinstance(lux, (int, float)):
-            self.lux_history.append(float(lux))
+        if lux is not None:
+            self.lux_history.append(lux)
             self.lux_spark.set_values(list(self.lux_history))
 
         desired_mode = desired.get("mode", "white")
