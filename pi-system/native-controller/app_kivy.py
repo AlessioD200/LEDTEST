@@ -49,6 +49,18 @@ KIOSK_ENFORCE_SECONDS = 2.0
 MODES = ["white", "warm", "red", "green", "blue", "purple", "cyan", "yellow", "off"]
 EFFECTS = ["none", "wave", "pulse", "strobe", "rainbow"]
 
+MODE_PRESET_RGB = {
+    "white": (255, 255, 255),
+    "warm": (255, 198, 132),
+    "red": (255, 56, 56),
+    "green": (64, 232, 116),
+    "blue": (84, 156, 255),
+    "purple": (180, 116, 255),
+    "cyan": (86, 230, 255),
+    "yellow": (255, 226, 92),
+    "off": (0, 0, 0),
+}
+
 RED = (0.84, 0.1, 0.13, 1)
 GREEN = (0.12, 0.62, 0.33, 1)
 BLUE = (0.0, 0.44, 0.79, 1)
@@ -274,6 +286,7 @@ class LedPreviewWidget(Widget):
     def __init__(self, **kwargs):
         super().__init__(size_hint_y=None, height=dp(82), **kwargs)
         self.rgb = [255, 255, 255]
+        self.mode = "white"
         self.brightness = 50
         self.effect = "none"
         self.power_on = True
@@ -293,11 +306,14 @@ class LedPreviewWidget(Widget):
             led_h = self.height - dp(28)
             x = self.x + dp(10)
             y = self.y + dp(14)
-            base_r, base_g, base_b = self.rgb
+            if self.mode in MODE_PRESET_RGB:
+                base_r, base_g, base_b = MODE_PRESET_RGB[self.mode]
+            else:
+                base_r, base_g, base_b = self.rgb
             brightness = clamp(self.brightness / 100.0, 0.0, 1.0)
 
             for index in range(led_count):
-                if not self.power_on:
+                if not self.power_on or self.mode == "off":
                     red = green = blue = 0
                 elif self.effect == "rainbow":
                     red, green, blue = hsv_to_rgb((self.phase * 0.2 + index / led_count) % 1.0, 0.9, brightness)
@@ -715,6 +731,7 @@ class LEDControllerApp(App):
         self.current_power = live_power
 
         self.preview_widget.rgb = self.current_rgb
+        self.preview_widget.mode = str(live_mode)
         self.preview_widget.brightness = live_brightness
         self.preview_widget.effect = live_effect
         self.preview_widget.power_on = live_power
@@ -847,7 +864,44 @@ class LEDControllerApp(App):
         self.send_command({"power": bool(should_on)})
 
     def send_command(self, payload):
+        self.apply_preview_payload(payload)
         self.simple_post("/api/command", payload)
+
+    def apply_preview_payload(self, payload):
+        if not isinstance(payload, dict):
+            return
+
+        if "power" in payload:
+            self.current_power = bool(payload.get("power"))
+            self.preview_widget.power_on = self.current_power
+
+        if "brightness" in payload:
+            try:
+                self.current_brightness = int(payload.get("brightness"))
+                self.preview_widget.brightness = self.current_brightness
+            except (TypeError, ValueError):
+                pass
+
+        if "effect" in payload and payload.get("effect"):
+            self.current_effect = str(payload.get("effect"))
+            self.preview_widget.effect = self.current_effect
+
+        if "mode" in payload and payload.get("mode"):
+            mode = str(payload.get("mode"))
+            self.preview_widget.mode = mode
+            if mode == "off":
+                self.current_power = False
+                self.preview_widget.power_on = False
+
+        color = payload.get("color") if isinstance(payload.get("color"), dict) else None
+        if color:
+            try:
+                self.current_rgb = [int(color.get("r", 255)), int(color.get("g", 255)), int(color.get("b", 255))]
+                self.preview_widget.rgb = self.current_rgb
+            except (TypeError, ValueError):
+                pass
+
+        self.preview_widget.redraw()
 
     def simple_post(self, path, payload):
         def worker():
