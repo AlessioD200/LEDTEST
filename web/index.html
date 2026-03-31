@@ -164,7 +164,7 @@
 
 							<div class="status-chip-sidebar">
 								<div class="chip-icon chip-ctrl">
-									<svg viewBox="0 0 24 24" fill="currentColor"><path d="M3 17v2h6v-2H3zm0-8v2h10V9H3zm10 16v-2h8v-2h-8v-2h-2v6h2zM7 9v2H3v2h4v2h2V9H7zm14 4v-2H11v2h10zm-6-4h2V7h4V5h-4V3h-2v6z"/></svg>
+									<svg viewBox="0 0 24 24" fill="currentColor"><path d="M6 11V6a1 1 0 0 1 2 0v5h1V4a1 1 0 0 1 2 0v7h1V5a1 1 0 0 1 2 0v6h1V7a1 1 0 1 1 2 0v8.2c0 2.4-1 4.6-2.8 6.2L13 23H9.5l-4.4-4.4A3 3 0 0 1 4 16.5V12a1 1 0 0 1 2 0v-1z"/></svg>
 								</div>
 								<div class="chip-body">
 									<span class="chip-label">Regeling</span>
@@ -303,6 +303,7 @@
 										<div class="time-field">
 											<label class="field-label" for="manual-timer-unit">Eenheid</label>
 											<select id="manual-timer-unit" class="input">
+												<option value="seconds">Seconden</option>
 												<option value="minutes" selected>Minuten</option>
 												<option value="hours">Uren</option>
 											</select>
@@ -327,17 +328,14 @@
 									</div>
 									<div class="lesson-config-grid">
 										<div class="lesson-config-field">
-											<label class="field-label" for="lesson-hours-input">Lesuren (1 per lijn, HH:MM-HH:MM)</label>
-											<textarea id="lesson-hours-input" class="input lesson-textarea">08:30-10:00
-10:15-11:45
-12:30-14:00
-14:15-15:45</textarea>
+											<label class="field-label">Lesuren (start + einde)</label>
+											<div class="lesson-config-rows" id="lesson-rows"></div>
+											<button class="btn btn-secondary lesson-add-btn" id="add-lesson-row" type="button">Les toevoegen</button>
 										</div>
 										<div class="lesson-config-field">
-											<label class="field-label" for="pause-hours-input">Pauzemomenten (1 per lijn, HH:MM)</label>
-											<textarea id="pause-hours-input" class="input lesson-textarea">10:00
-11:45
-14:00</textarea>
+											<label class="field-label">Pauzemomenten</label>
+											<div class="lesson-config-rows" id="pause-rows"></div>
+											<button class="btn btn-secondary lesson-add-btn" id="add-pause-row" type="button">Pauze toevoegen</button>
 										</div>
 									</div>
 									<div class="lesson-timer-actions">

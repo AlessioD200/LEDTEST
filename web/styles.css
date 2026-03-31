@@ -545,12 +545,32 @@ body {
 	gap: 8px;
 }
 .lesson-config-field { display: flex; flex-direction: column; gap: 4px; }
-.lesson-textarea {
-	min-height: 78px;
-	resize: vertical;
-	font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+.lesson-config-rows {
+	display: flex;
+	flex-direction: column;
+	gap: 6px;
+}
+.lesson-row,
+.pause-row {
+	display: grid;
+	gap: 6px;
+	align-items: center;
+}
+.lesson-row { grid-template-columns: 1fr 1fr auto; }
+.pause-row { grid-template-columns: 1fr auto; }
+.lesson-time-input {
+	padding: 7px 9px;
 	font-size: 12px;
-	line-height: 1.35;
+}
+.lesson-remove-btn {
+	padding: 7px 10px;
+	font-size: 11px;
+	line-height: 1;
+}
+.lesson-add-btn {
+	align-self: flex-start;
+	padding: 6px 11px;
+	font-size: 11px;
 }
 .lesson-timer-phase {
 	font-size: 10px;

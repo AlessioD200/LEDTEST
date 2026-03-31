@@ -463,7 +463,11 @@ function startManualTimer() {
 	const rawValue = Number(valueEl.value);
 	const safeValue = Math.max(1, Math.min(240, Number.isFinite(rawValue) ? rawValue : 10));
 	valueEl.value = safeValue;
-	const multiplier = unitEl.value === "hours" ? 60 * 60 * 1000 : 60 * 1000;
+	const multiplier = unitEl.value === "hours"
+		? 60 * 60 * 1000
+		: unitEl.value === "seconds"
+			? 1000
+			: 60 * 1000;
 	const durationMs = safeValue * multiplier;
 
 	state.manualTimer.active = true;
@@ -752,31 +756,83 @@ function minToHhmm(total) {
 	return `${pad2(h)}:${pad2(m)}`;
 }
 
-function parseLessonLines(textValue) {
-	const lines = String(textValue || "").split("\n").map(s => s.trim()).filter(Boolean);
-	const parsed = [];
-	for (let i = 0; i < lines.length; i++) {
-		const row = lines[i];
-		const match = row.match(/^(\d{2}:\d{2})\s*-\s*(\d{2}:\d{2})$/);
-		if (!match) return { ok: false, message: `Fout in lesuren op lijn ${i + 1}` };
-		const start = hhmmToMin(match[1]);
-		const end = hhmmToMin(match[2]);
-		if (end <= start) return { ok: false, message: `Eindtijd moet na starttijd liggen (lijn ${i + 1})` };
-		parsed.push({ label: `Les ${i + 1}`, start: match[1], end: match[2], startMin: start, endMin: end });
-	}
-	if (!parsed.length) return { ok: false, message: "Voeg minstens 1 lesblok toe." };
-	parsed.sort((a, b) => a.startMin - b.startMin);
-	return { ok: true, lessons: parsed.map(({ label, start, end }) => ({ label, start, end })) };
+function isValidHhmm(value) {
+	if (!/^\d{2}:\d{2}$/.test(String(value))) return false;
+	const [h, m] = String(value).split(":").map(Number);
+	return h >= 0 && h <= 23 && m >= 0 && m <= 59;
 }
 
-function parsePauseLines(textValue) {
-	const lines = String(textValue || "").split("\n").map(s => s.trim()).filter(Boolean);
-	for (let i = 0; i < lines.length; i++) {
-		if (!/^\d{2}:\d{2}$/.test(lines[i])) {
-			return { ok: false, message: `Fout in pauzes op lijn ${i + 1}` };
+function createLessonRow(start = "08:30", end = "10:00") {
+	const row = document.createElement("div");
+	row.className = "lesson-row";
+	row.innerHTML = `
+		<input type="time" class="input lesson-time-input lesson-start" value="${start}" />
+		<input type="time" class="input lesson-time-input lesson-end" value="${end}" />
+		<button type="button" class="btn btn-secondary lesson-remove-btn" aria-label="Verwijder les">X</button>`;
+	const removeBtn = row.querySelector(".lesson-remove-btn");
+	if (removeBtn) removeBtn.addEventListener("click", () => row.remove());
+	return row;
+}
+
+function createPauseRow(value = "10:00") {
+	const row = document.createElement("div");
+	row.className = "pause-row";
+	row.innerHTML = `
+		<input type="time" class="input lesson-time-input pause-time" value="${value}" />
+		<button type="button" class="btn btn-secondary lesson-remove-btn" aria-label="Verwijder pauze">X</button>`;
+	const removeBtn = row.querySelector(".lesson-remove-btn");
+	if (removeBtn) removeBtn.addEventListener("click", () => row.remove());
+	return row;
+}
+
+function renderLessonConfigRows() {
+	const lessonRows = $("lesson-rows");
+	const pauseRows = $("pause-rows");
+	if (!lessonRows || !pauseRows) return;
+
+	lessonRows.innerHTML = "";
+	lessonSchedule.forEach(item => lessonRows.appendChild(createLessonRow(item.start, item.end)));
+
+	pauseRows.innerHTML = "";
+	pauseMarkers.forEach(value => pauseRows.appendChild(createPauseRow(value)));
+}
+
+function collectLessonsFromRows() {
+	const rows = Array.from(document.querySelectorAll("#lesson-rows .lesson-row"));
+	if (!rows.length) return { ok: false, message: "Voeg minstens 1 les toe." };
+
+	const parsed = [];
+	for (let i = 0; i < rows.length; i++) {
+		const startVal = rows[i].querySelector(".lesson-start")?.value || "";
+		const endVal = rows[i].querySelector(".lesson-end")?.value || "";
+		if (!isValidHhmm(startVal) || !isValidHhmm(endVal)) {
+			return { ok: false, message: `Les ${i + 1} heeft een ongeldige tijd.` };
 		}
+		const startMin = hhmmToMin(startVal);
+		const endMin = hhmmToMin(endVal);
+		if (endMin <= startMin) {
+			return { ok: false, message: `Les ${i + 1}: einde moet na start liggen.` };
+		}
+		parsed.push({ start: startVal, end: endVal, startMin, endMin });
 	}
-	return { ok: true, pauses: lines };
+
+	parsed.sort((a, b) => a.startMin - b.startMin);
+	const lessons = parsed.map((item, idx) => ({ label: `Les ${idx + 1}`, start: item.start, end: item.end }));
+	return { ok: true, lessons };
+}
+
+function collectPausesFromRows() {
+	const rows = Array.from(document.querySelectorAll("#pause-rows .pause-row"));
+	const pauses = [];
+	for (let i = 0; i < rows.length; i++) {
+		const pauseVal = rows[i].querySelector(".pause-time")?.value || "";
+		if (!pauseVal) continue;
+		if (!isValidHhmm(pauseVal)) {
+			return { ok: false, message: `Pauze ${i + 1} heeft een ongeldige tijd.` };
+		}
+		pauses.push(pauseVal);
+	}
+	return { ok: true, pauses };
 }
 
 function rebuildLessonTimeline() {
@@ -865,11 +921,7 @@ function buildLessonUI() {
 			strip.appendChild(led);
 		}
 	}
-
-	const lessonInput = $("lesson-hours-input");
-	if (lessonInput) lessonInput.value = lessonSchedule.map(item => `${item.start}-${item.end}`).join("\n");
-	const pauseInput = $("pause-hours-input");
-	if (pauseInput) pauseInput.value = pauseMarkers.join("\n");
+	renderLessonConfigRows();
 
 	const list = $("lesson-list");
 	if (list) {
@@ -889,17 +941,13 @@ function setLessonPhase(phase, durationMs = 0, countdownEndsAt = 0) {
 }
 
 function applyLessonConfig() {
-	const lessonInput = $("lesson-hours-input");
-	const pauseInput = $("pause-hours-input");
-	if (!lessonInput || !pauseInput) return;
-
-	const lessonResult = parseLessonLines(lessonInput.value);
+	const lessonResult = collectLessonsFromRows();
 	if (!lessonResult.ok) {
 		setText("lesson-current", lessonResult.message);
 		return;
 	}
 
-	const pauseResult = parsePauseLines(pauseInput.value);
+	const pauseResult = collectPausesFromRows();
 	if (!pauseResult.ok) {
 		setText("lesson-current", pauseResult.message);
 		return;
@@ -1130,6 +1178,30 @@ if (lessonTimerStopBtn) {
 const lessonConfigApplyBtn = $("lesson-config-apply");
 if (lessonConfigApplyBtn) {
 	lessonConfigApplyBtn.addEventListener("click", applyLessonConfig);
+}
+
+const addLessonRowBtn = $("add-lesson-row");
+if (addLessonRowBtn) {
+	addLessonRowBtn.addEventListener("click", () => {
+		const container = $("lesson-rows");
+		if (!container) return;
+		const lastEnd = container.querySelector(".lesson-row:last-child .lesson-end")?.value;
+		const start = isValidHhmm(lastEnd) ? lastEnd : "08:30";
+		const endMin = hhmmToMin(start) + 60;
+		const end = endMin > (23 * 60 + 59) ? "23:59" : minToHhmm(endMin);
+		container.appendChild(createLessonRow(start, end));
+	});
+}
+
+const addPauseRowBtn = $("add-pause-row");
+if (addPauseRowBtn) {
+	addPauseRowBtn.addEventListener("click", () => {
+		const container = $("pause-rows");
+		if (!container) return;
+		const lastPause = container.querySelector(".pause-row:last-child .pause-time")?.value;
+		const nextMin = isValidHhmm(lastPause) ? Math.min(hhmmToMin(lastPause) + 15, 23 * 60 + 59) : 10 * 60;
+		container.appendChild(createPauseRow(minToHhmm(nextMin)));
+	});
 }
 
 document.querySelectorAll(".preset-btn[data-minutes]").forEach(btn => {
