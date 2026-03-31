@@ -178,54 +178,65 @@
 				</div><!-- /status-layout -->
 			</section>
 
-			<!-- PAGE: KLEUR & MODUS (effecten hier) -->
+			<!-- PAGE: KLEUR & MODUS -->
 			<section class="page" id="page-kleur">
 				<div class="page-header">
-					<h2>Kleur, Modus &amp; Effecten</h2>
-					<p class="small">Selecteer kleur, modus en animatie-effecten voor de LED-strip.</p>
+					<h2>Kleur &amp; Modus</h2>
+					<p class="small">Strip actief: <strong id="kleur-current-badge">WIT</strong></p>
 				</div>
 
-				<div class="kleur-layout">
-					<div class="kleur-left">
-						<h3 class="section-title">Voorkeurkleuren &amp; Modi</h3>
-						<div class="color-grid" id="mode-buttons"></div>
+				<div class="kleur-body">
 
-						<div class="manual-brightness-card" style="margin-top:22px">
-							<div class="manual-brightness-head">
-								<div>
-									<h3 class="section-title" style="margin-bottom:4px">Algemene helderheid</h3>
-									<p class="small">Handmatige helderheid voor kleur en modus. Auto-Lux schakelt deze slider uit.</p>
+					<!-- LEFT: mode picker + custom color -->
+					<div class="kleur-col-left">
+						<p class="section-title">Kleurmodel</p>
+						<div class="mode-grid" id="mode-buttons"></div>
+
+						<div class="custom-color-card">
+							<div class="custom-color-preview" id="custom-color-swatch" style="background:#ffffff"></div>
+							<div class="custom-color-controls">
+								<p class="custom-color-title">Aangepaste kleur</p>
+								<div class="custom-color-row">
+									<input type="color" id="custom-color" value="#ffffff" class="color-picker-input" />
+									<div class="custom-color-meta">
+										<span class="custom-color-hex-label" id="custom-color-hex">#ffffff</span>
+										<button class="btn" id="apply-custom-color">Toepassen</button>
+									</div>
 								</div>
-								<span class="manual-brightness-value" id="brightness-val-kleur">50%</span>
 							</div>
-							<label class="field-label" for="brightness">Helderheid</label>
+						</div>
+					</div>
+
+					<!-- RIGHT: brightness + effects -->
+					<div class="kleur-col-right">
+						<div class="brightness-panel">
+							<div class="brightness-panel-head">
+								<div>
+									<p class="section-title" style="margin-bottom:2px">Helderheid</p>
+									<p class="small">Auto-Lux schakelt deze slider automatisch uit.</p>
+								</div>
+								<span class="brightness-big-val" id="brightness-val-kleur">50%</span>
+							</div>
 							<input type="range" id="brightness" min="1" max="100" value="50" class="slider" />
 							<div class="slider-labels"><span>1%</span><span id="brightness-val">50%</span><span>100%</span></div>
 						</div>
 
-						<h3 class="section-title" style="margin-top:22px">Aangepaste kleur</h3>
-						<div class="custom-color-wrap">
-							<label class="field-label" for="custom-color">Kies kleur:</label>
-							<input type="color" id="custom-color" value="#ffffff" class="color-picker-input" />
-							<button class="btn" id="apply-custom-color">Toepassen</button>
+						<div class="effects-panel">
+							<div class="effects-panel-head">
+								<p class="section-title" style="margin-bottom:0">Animatie-effecten</p>
+								<span class="effects-count-badge" id="effects-summary">Geen actief</span>
+							</div>
+							<p class="small" style="margin:4px 0 12px">Slechts één effect tegelijk actief.</p>
+							<div class="effects-grid-new" id="effects-list"></div>
 						</div>
-						<div class="custom-color-preview-row">
-							<div id="custom-color-swatch" class="custom-color-swatch"></div>
-							<span class="small" id="custom-color-hex">#ffffff</span>
-						</div>
-
-						<div class="effects-section-header" style="margin-top:24px">
-							<h3 class="section-title" style="margin-bottom:0">Effecten &amp; Animaties</h3>
-							<span class="effects-count-badge" id="effects-summary">0 actief</span>
-						</div>
-						<div class="effects-grid" id="effects-list"></div>
 					</div>
 
-					<div class="kleur-right desktop-only">
-						<h3 class="section-title">LED Preview</h3>
-						<div class="led-strip-wrap">
-							<canvas id="led-canvas-kleur" class="led-canvas"></canvas>
-						</div>
+				</div>
+
+				<!-- LED preview onderaan -->
+				<div class="kleur-led-bar desktop-only">
+					<div class="led-strip-wrap">
+						<canvas id="led-canvas-kleur" class="led-canvas"></canvas>
 					</div>
 				</div>
 			</section>
@@ -308,6 +319,39 @@
 									<button class="preset-btn" type="button" data-minutes="60">1 uur</button>
 								</div>
 								<p class="small manual-timer-meta" id="manual-timer-meta">Zet de LED-strip automatisch uit na de gekozen duur.</p>
+
+								<div class="lesson-timer-wrap">
+									<div class="lesson-timer-head">
+										<h4>Lesrooster timer</h4>
+										<span class="lesson-timer-phase" id="lesson-phase">Inactief</span>
+									</div>
+									<div class="lesson-config-grid">
+										<div class="lesson-config-field">
+											<label class="field-label" for="lesson-hours-input">Lesuren (1 per lijn, HH:MM-HH:MM)</label>
+											<textarea id="lesson-hours-input" class="input lesson-textarea">08:30-10:00
+10:15-11:45
+12:30-14:00
+14:15-15:45</textarea>
+										</div>
+										<div class="lesson-config-field">
+											<label class="field-label" for="pause-hours-input">Pauzemomenten (1 per lijn, HH:MM)</label>
+											<textarea id="pause-hours-input" class="input lesson-textarea">10:00
+11:45
+14:00</textarea>
+										</div>
+									</div>
+									<div class="lesson-timer-actions">
+										<button class="btn" id="lesson-config-apply" type="button">Toepassen</button>
+									</div>
+									<p class="small" id="lesson-current">Volgende les: --</p>
+									<p class="small" id="lesson-window">Start - Einde: --</p>
+									<div class="lesson-led-strip" id="lesson-led-strip" aria-label="Lesrooster LED timer"></div>
+									<div class="lesson-timer-actions">
+										<button class="btn" id="lesson-timer-start" type="button">Start lesrooster</button>
+										<button class="btn btn-secondary" id="lesson-timer-stop" type="button">Stop</button>
+									</div>
+									<ul class="lesson-list" id="lesson-list"></ul>
+								</div>
 							</div>
 						</div>
 					</div>
