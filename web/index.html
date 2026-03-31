@@ -172,6 +172,16 @@
 								</div>
 							</div>
 
+							<div class="status-chip-sidebar">
+								<div class="chip-icon chip-lesson">
+									<svg viewBox="0 0 24 24" fill="currentColor"><path d="M19 3h-1V1h-2v2H8V1H6v2H5a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2V5a2 2 0 0 0-2-2zm0 16H5V9h14v10zm-7-9a4 4 0 1 0 4 4 4 4 0 0 0-4-4zm.5 4.2V12h-1v3h3v-1z"/></svg>
+								</div>
+								<div class="chip-body">
+									<span class="chip-label">Lesrooster</span>
+									<strong class="chip-val" id="status-lesson">Inactief</strong>
+								</div>
+							</div>
+
 						</div>
 					</div><!-- /status-right -->
 
@@ -339,6 +349,8 @@
 										</div>
 									</div>
 									<div class="lesson-timer-actions">
+										<label class="field-label" for="pause-duration-min" style="margin-bottom:0">Pauzeduur (min)</label>
+										<input type="number" id="pause-duration-min" min="1" max="120" value="15" class="input" style="width:90px" />
 										<button class="btn" id="lesson-config-apply" type="button">Toepassen</button>
 									</div>
 									<p class="small" id="lesson-current">Volgende les: --</p>

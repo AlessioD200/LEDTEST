@@ -243,6 +243,7 @@ body {
 .chip-auto { background: var(--chip-auto-bg); color: var(--chip-auto-fg); }
 .chip-fx   { background: var(--chip-fx-bg);   color: var(--chip-fx-fg);  }
 .chip-ctrl { background: var(--chip-ctrl-bg); color: var(--chip-ctrl-fg); }
+.chip-lesson { background: #ecfeff; color: #0f766e; }
 .chip-body { display: flex; flex-direction: column; gap: 1px; }
 .chip-label { font-size: 10px; text-transform: uppercase; letter-spacing: .06em; color: var(--muted); }
 .chip-val { font-size: 13px; font-weight: 700; }
@@ -755,4 +756,37 @@ body {
 }
 @media (max-width: 480px) {
 	.stat-cards { grid-template-columns: repeat(2, 1fr); }
+}
+
+@media (pointer: coarse) {
+	body { -webkit-tap-highlight-color: transparent; }
+	.btn,
+	.preset-btn,
+	.btn-secondary,
+	.nav-btn,
+	.mode-card,
+	.effect-card-new,
+	.lesson-add-btn,
+	.lesson-remove-btn {
+		min-height: 44px;
+	}
+	.input,
+	select.input,
+	input[type="time"],
+	input[type="number"],
+	.color-picker-input {
+		min-height: 44px;
+		font-size: 16px;
+	}
+	input[type=range]::-webkit-slider-thumb {
+		width: 28px;
+		height: 28px;
+	}
+	.stat-card.clickable:hover,
+	.mode-card:hover,
+	.btn:hover,
+	.preset-btn:hover,
+	.btn-secondary:hover {
+		transform: none;
+	}
 }

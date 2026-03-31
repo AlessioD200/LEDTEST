@@ -1,0 +1,146 @@
+<!doctype html>
+<html lang="nl">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>LED Pi Control</title>
+  <style>
+    body { font-family: sans-serif; margin: 0; background: #0f172a; color: #e2e8f0; }
+    .wrap { max-width: 980px; margin: 0 auto; padding: 18px; }
+    .grid { display: grid; grid-template-columns: repeat(2, minmax(0,1fr)); gap: 12px; }
+    .card { background: #111827; border: 1px solid #334155; border-radius: 10px; padding: 12px; }
+    h2 { margin: 0 0 10px 0; font-size: 16px; }
+    .row { display: flex; gap: 8px; align-items: center; margin-bottom: 8px; flex-wrap: wrap; }
+    input, select, button, textarea { background: #1f2937; color: #e2e8f0; border: 1px solid #334155; border-radius: 8px; padding: 7px 9px; }
+    button { cursor: pointer; }
+    .mono { font-family: monospace; font-size: 12px; white-space: pre-wrap; }
+    @media (max-width: 780px) { .grid { grid-template-columns: 1fr; } }
+  </style>
+</head>
+<body>
+  <div class="wrap">
+    <h1>LED Pi Touch Dashboard</h1>
+    <div class="grid">
+      <section class="card">
+        <h2>Direct Control</h2>
+        <div class="row">
+          <label>Mode</label>
+          <select id="mode">
+            <option>white</option><option>warm</option><option>red</option><option>green</option>
+            <option>blue</option><option>purple</option><option>cyan</option><option>yellow</option><option>off</option>
+          </select>
+          <label>Brightness</label>
+          <input type="number" id="brightness" min="1" max="100" value="50" />
+          <label>Effect</label>
+          <select id="effect">
+            <option>none</option><option>wave</option><option>pulse</option><option>strobe</option><option>rainbow</option>
+          </select>
+          <button id="apply-state">Apply</button>
+        </div>
+        <div class="row">
+          <label>Color</label>
+          <input type="color" id="color" value="#ffffff" />
+        </div>
+      </section>
+
+      <section class="card">
+        <h2>Scheduler</h2>
+        <div class="row">
+          <label>Enabled</label>
+          <input type="checkbox" id="sched-enabled" />
+          <label>Pauze (min)</label>
+          <input type="number" id="pause-min" min="1" max="120" value="15" />
+        </div>
+        <div class="row">
+          <label>Lessons JSON</label>
+        </div>
+        <textarea id="lessons" rows="5"></textarea>
+        <div class="row">
+          <label>Breaks JSON</label>
+        </div>
+        <textarea id="breaks" rows="3"></textarea>
+        <div class="row">
+          <button id="save-sched">Save Scheduler</button>
+          <button id="start-sched">Start</button>
+          <button id="stop-sched">Stop</button>
+        </div>
+      </section>
+    </div>
+
+    <section class="card" style="margin-top:12px;">
+      <h2>Live State</h2>
+      <div class="mono" id="state"></div>
+    </section>
+  </div>
+
+  <script>
+    const stateEl = document.getElementById("state");
+    const modeEl = document.getElementById("mode");
+    const brightnessEl = document.getElementById("brightness");
+    const effectEl = document.getElementById("effect");
+    const colorEl = document.getElementById("color");
+    const enabledEl = document.getElementById("sched-enabled");
+    const pauseMinEl = document.getElementById("pause-min");
+    const lessonsEl = document.getElementById("lessons");
+    const breaksEl = document.getElementById("breaks");
+
+    function hexToRgb(hex) {
+      const v = hex.replace("#", "");
+      return { r: parseInt(v.slice(0,2),16), g: parseInt(v.slice(2,4),16), b: parseInt(v.slice(4,6),16) };
+    }
+
+    async function call(url, method = "GET", body = null) {
+      const res = await fetch(url, {
+        method,
+        headers: { "Content-Type": "application/json" },
+        body: body ? JSON.stringify(body) : null
+      });
+      return res.json();
+    }
+
+    function render(state) {
+      stateEl.textContent = JSON.stringify(state, null, 2);
+      modeEl.value = state.desired.mode;
+      brightnessEl.value = state.desired.brightness;
+      effectEl.value = state.desired.effect;
+      enabledEl.checked = state.scheduler.enabled;
+      pauseMinEl.value = state.scheduler.pauseDurationMin;
+      lessonsEl.value = JSON.stringify(state.scheduler.lessons, null, 2);
+      breaksEl.value = JSON.stringify(state.scheduler.breaks, null, 2);
+      const c = state.desired.color;
+      colorEl.value = "#" + [c.r,c.g,c.b].map(x => x.toString(16).padStart(2,"0")).join("");
+    }
+
+    document.getElementById("apply-state").onclick = async () => {
+      await call("/api/command", "POST", {
+        mode: modeEl.value,
+        brightness: Number(brightnessEl.value),
+        effect: effectEl.value,
+        color: hexToRgb(colorEl.value),
+        power: modeEl.value !== "off"
+      });
+    };
+
+    document.getElementById("save-sched").onclick = async () => {
+      await call("/api/scheduler", "POST", {
+        enabled: enabledEl.checked,
+        pauseDurationMin: Number(pauseMinEl.value),
+        lessons: JSON.parse(lessonsEl.value || "[]"),
+        breaks: JSON.parse(breaksEl.value || "[]")
+      });
+    };
+
+    document.getElementById("start-sched").onclick = async () => { await call("/api/scheduler/start", "POST"); };
+    document.getElementById("stop-sched").onclick = async () => { await call("/api/scheduler/stop", "POST"); };
+
+    (async () => {
+      render(await call("/api/state"));
+      const ws = new WebSocket(`ws://${location.host}/ws`);
+      ws.onmessage = (e) => {
+        const msg = JSON.parse(e.data);
+        if (msg.type === "state") render(msg.state);
+      };
+    })();
+  </script>
+</body>
+</html>

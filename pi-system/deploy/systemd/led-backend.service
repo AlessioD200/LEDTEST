@@ -1,0 +1,18 @@
+[Unit]
+Description=LED Pi Backend
+After=network-online.target mosquitto.service
+Wants=network-online.target
+
+[Service]
+Type=simple
+WorkingDirectory=/opt/led-pi/backend
+Environment=NODE_ENV=production
+EnvironmentFile=/opt/led-pi/backend/.env
+ExecStart=/usr/bin/node /opt/led-pi/backend/src/index.js
+Restart=always
+RestartSec=3
+User=pi
+Group=pi
+
+[Install]
+WantedBy=multi-user.target

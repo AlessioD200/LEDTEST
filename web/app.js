@@ -58,7 +58,7 @@ const LED_COUNT    = 48;
 
 const LESSON_LED_COUNT = 28;
 const LESSON_MS_PER_MINUTE = 250;
-const LESSON_PRESTART_MINUTES = 15;
+let pauseDurationMinutes = 15;
 const DEFAULT_LESSON_SCHEDULE = [
 	{ label: "Les 1", start: "08:30", end: "10:00" },
 	{ label: "Les 2", start: "10:15", end: "11:45" },
@@ -86,12 +86,21 @@ let lessonTimer = {
 // ─── LED canvas contexts ─────────────────────
 let ledCtx      = null;
 let ledCtxKleur = null;
+let lastLedColors = Array.from({ length: LED_COUNT }, () => [0, 0, 0]);
 
 // ─── Inline lux chart context ─────────────────
 let chartCtx = null;
 
 // ─── Active modal ─────────────────────────────
 let activeModal = null;
+let backendSync = {
+	enabled: false,
+	ws: null,
+	baseUrl: window.location.origin && window.location.origin !== "null"
+		? window.location.origin
+		: `${window.location.protocol}//${window.location.hostname || "127.0.0.1"}:3000`,
+	lastState: null
+};
 
 // ─── Helper ───────────────────────────────────
 const $ = id => document.getElementById(id);
@@ -105,6 +114,172 @@ function formatRemaining(ms) {
 	const seconds = totalSeconds % 60;
 	if (hours > 0) return `${hours}u ${pad2(minutes)}m ${pad2(seconds)}s`;
 	return `${minutes}m ${pad2(seconds)}s`;
+}
+
+function apiUrl(path) {
+	return `${backendSync.baseUrl}${path}`;
+}
+
+async function apiRequest(path, options = {}) {
+	const response = await fetch(apiUrl(path), {
+		headers: { "Content-Type": "application/json", ...(options.headers || {}) },
+		...options
+	});
+	if (!response.ok) throw new Error(`HTTP ${response.status}`);
+	if (response.status === 204) return null;
+	return response.json();
+}
+
+function getDesiredPayload() {
+	const activeEffect = EFFECTS.find(effect => state.effects[effect.key]);
+	const color = state.mode === "custom"
+		? { r: state.customColor[0], g: state.customColor[1], b: state.customColor[2] }
+		: { r: (modeBase[state.mode] || [255, 255, 255])[0], g: (modeBase[state.mode] || [255, 255, 255])[1], b: (modeBase[state.mode] || [255, 255, 255])[2] };
+	return {
+		power: state.mode !== "off",
+		mode: state.mode,
+		auto: state.auto,
+		brightness: state.br,
+		color,
+		effect: activeEffect ? activeEffect.key : "none"
+	};
+}
+
+function applyBackendState(snapshot) {
+	if (!snapshot) return;
+	backendSync.lastState = snapshot;
+	const desired = snapshot.desired || {};
+	const telemetry = snapshot.device?.telemetry || {};
+	state.mode = desired.mode || state.mode;
+	state.auto = !!desired.auto;
+	state.br = Number.isFinite(desired.brightness) ? desired.brightness : state.br;
+	state.lux = Number.isFinite(telemetry.lux) ? telemetry.lux : state.lux;
+	state.temp = Number.isFinite(telemetry.temperature) ? telemetry.temperature : state.temp;
+	state.effects = { wave: false, pulse: false, strobe: false, rainbow: false };
+	if (desired.effect && desired.effect !== "none") {
+		state.effects[desired.effect] = true;
+	}
+	if (desired.color && Number.isFinite(desired.color.r) && Number.isFinite(desired.color.g) && Number.isFinite(desired.color.b)) {
+		state.customColor = [desired.color.r, desired.color.g, desired.color.b];
+		modeBase.custom = [...state.customColor];
+		setText("custom-color-hex", rgbToHex(state.customColor));
+		const sw = $("custom-color-swatch");
+		if (sw) sw.style.background = rgbToHex(state.customColor);
+		const picker = $("custom-color");
+		if (picker) picker.value = rgbToHex(state.customColor);
+	}
+
+	const scheduler = snapshot.scheduler || {};
+	const nextLessons = Array.isArray(scheduler.lessons) && scheduler.lessons.length
+		? scheduler.lessons.map((lesson, index) => ({
+			label: lesson.name || lesson.label || `Les ${index + 1}`,
+			start: lesson.start,
+			end: lesson.end
+		}))
+		: lessonSchedule;
+	const nextBreaks = Array.isArray(scheduler.breaks) ? [...scheduler.breaks] : pauseMarkers;
+	const nextPauseDuration = Number.isFinite(scheduler.pauseDurationMin) ? scheduler.pauseDurationMin : pauseDurationMinutes;
+	const schedulerChanged = JSON.stringify(nextLessons) !== JSON.stringify(lessonSchedule)
+		|| JSON.stringify(nextBreaks) !== JSON.stringify(pauseMarkers)
+		|| nextPauseDuration !== pauseDurationMinutes;
+	if (schedulerChanged) {
+		lessonSchedule = nextLessons;
+		pauseMarkers = nextBreaks;
+		pauseDurationMinutes = nextPauseDuration;
+		renderLessonConfigRows();
+		rebuildLessonTimeline();
+		const list = $("lesson-list");
+		if (list) {
+			const lessonRows = lessonSchedule.map(item => `<li>${item.label}: ${item.start} - ${item.end}</li>`);
+			const pauseRows = pauseMarkers.map((value, i) => `<li>Pauze ${i + 1}: ${value} (${pauseDurationMinutes} min)</li>`);
+			list.innerHTML = [...lessonRows, ...pauseRows].join("");
+		}
+		const pauseDurationInput = $("pause-duration-min");
+		if (pauseDurationInput) pauseDurationInput.value = String(pauseDurationMinutes);
+		renderLessonTimer();
+	}
+
+	luxHistory.push(state.lux);
+	if (luxHistory.length > LUX_MAX) luxHistory.shift();
+	renderState();
+	renderLEDFrame(Date.now() / 1000);
+	drawChart();
+	updateModal();
+	setConn(!!snapshot.device?.online, snapshot.device?.online ? "Simulator backend actief" : "Backend offline");
+}
+
+async function pushDesiredState() {
+	if (!backendSync.enabled) return;
+	try {
+		await apiRequest("/api/command", {
+			method: "POST",
+			body: JSON.stringify(getDesiredPayload())
+		});
+	} catch {
+		setConn(false, "Backend fout");
+	}
+}
+
+async function pushSchedulerConfig() {
+	if (!backendSync.enabled) return;
+	try {
+		await apiRequest("/api/scheduler", {
+			method: "POST",
+			body: JSON.stringify({
+				enabled: lessonTimer.running,
+				pauseDurationMin: pauseDurationMinutes,
+				lessons: lessonSchedule.map((lesson, index) => ({ name: lesson.label || `Les ${index + 1}`, start: lesson.start, end: lesson.end })),
+				breaks: pauseMarkers
+			})
+		});
+	} catch {
+		setConn(false, "Scheduler sync fout");
+	}
+}
+
+async function pushSchedulerRun(enabled) {
+	if (!backendSync.enabled) return;
+	try {
+		await apiRequest(enabled ? "/api/scheduler/start" : "/api/scheduler/stop", { method: "POST" });
+	} catch {
+		setConn(false, "Scheduler start/stop fout");
+	}
+}
+
+function connectBackendSocket() {
+	if (!backendSync.enabled) return;
+	const protocol = window.location.protocol === "https:" ? "wss:" : "ws:";
+	const wsUrl = `${protocol}//${new URL(backendSync.baseUrl).host}/ws`;
+	const ws = new WebSocket(wsUrl);
+	backendSync.ws = ws;
+	ws.addEventListener("message", event => {
+		try {
+			const payload = JSON.parse(event.data);
+			if (payload.type === "state") applyBackendState(payload.state);
+		} catch {
+			// ignore malformed packets
+		}
+	});
+	ws.addEventListener("close", () => {
+		if (!backendSync.enabled) return;
+		setConn(false, "Backend herverbinden...");
+		setTimeout(connectBackendSocket, 2000);
+	});
+	ws.addEventListener("error", () => {
+		ws.close();
+	});
+}
+
+async function initBackendSync() {
+	try {
+		const snapshot = await apiRequest("/api/state");
+		backendSync.enabled = true;
+		applyBackendState(snapshot);
+		connectBackendSocket();
+	} catch {
+		backendSync.enabled = false;
+		setConn(true, "Lokale simulator actief");
+	}
 }
 
 // ═══════════════════════════════════════════════
@@ -123,6 +298,12 @@ function initLedCanvas() {
 		ck.height = 44;
 		ledCtxKleur = ck.getContext("2d");
 	}
+	drawSyncedLedPreviews();
+}
+
+function drawSyncedLedPreviews() {
+	drawLEDCanvas(ledCtx, lastLedColors);
+	drawLEDCanvas(ledCtxKleur, lastLedColors);
 }
 
 function drawLEDCanvas(ctx, colors) {
@@ -154,6 +335,7 @@ window.addEventListener("resize", () => {
 	if (c && ledCtx) { c.width = c.offsetWidth || 700; }
 	const ck = $("led-canvas-kleur");
 	if (ck && ledCtxKleur) { ck.width = ck.offsetWidth || 700; }
+	drawSyncedLedPreviews();
 	const lc = $("lux-chart");
 	if (lc && chartCtx) { lc.width = lc.offsetWidth || 400; }
 });
@@ -279,6 +461,7 @@ function buildModes() {
 			state.mode = m.key;
 			state.effects = { wave: false, pulse: false, strobe: false, rainbow: false };
 			renderState();
+			pushDesiredState();
 		};
 
 		// preview swatch
@@ -323,6 +506,7 @@ function buildEffects() {
 			const isActive = !!state.effects[e.key];
 			setActiveEffect(e.key, !isActive);
 			renderState();
+			pushDesiredState();
 		};
 
 		const iconWrap = document.createElement("div");
@@ -402,6 +586,7 @@ function renderState() {
 	setText("status-auto",    state.auto ? "Aan" : "Uit");
 	setText("status-effects", activeEffect ? activeEffect.label : "Geen actief");
 	setText("status-control", state.auto ? "Sensor" : "Handmatig");
+	setText("status-lesson", getLessonStatusShort());
 
 	updateTempGauge(state.temp);
 	updateManualTimerUI();
@@ -554,8 +739,8 @@ function renderLEDFrame(t) {
 		for (let i = 0; i < LED_COUNT; i++) colors[i] = base;
 	}
 
-	drawLEDCanvas(ledCtx,      colors);
-	drawLEDCanvas(ledCtxKleur, colors);
+	lastLedColors = colors.map(pixel => [...pixel]);
+	drawSyncedLedPreviews();
 }
 
 // ═══════════════════════════════════════════════
@@ -733,12 +918,14 @@ function initNav() {
 					initChart();
 					const c = $("led-canvas");
 					if (c) { c.width = c.offsetWidth || 700; ledCtx = c.getContext("2d"); }
+					drawSyncedLedPreviews();
 					drawChart();
 				}, 30);
 			} else if (page === "kleur") {
 				setTimeout(() => {
 					const ck = $("led-canvas-kleur");
 					if (ck) { ck.width = ck.offsetWidth || 700; ledCtxKleur = ck.getContext("2d"); }
+					drawSyncedLedPreviews();
 				}, 30);
 			}
 		});
@@ -926,9 +1113,12 @@ function buildLessonUI() {
 	const list = $("lesson-list");
 	if (list) {
 		const lessonRows = lessonSchedule.map(item => `<li>${item.label}: ${item.start} - ${item.end}</li>`);
-		const pauseRows = pauseMarkers.map((value, i) => `<li>Pauze ${i + 1}: ${value}</li>`);
+		const pauseRows = pauseMarkers.map((value, i) => `<li>Pauze ${i + 1}: ${value} (${pauseDurationMinutes} min)</li>`);
 		list.innerHTML = [...lessonRows, ...pauseRows].join("");
 	}
+
+	const pauseDurationInput = $("pause-duration-min");
+	if (pauseDurationInput) pauseDurationInput.value = String(pauseDurationMinutes);
 
 	renderLessonTimer();
 }
@@ -953,10 +1143,15 @@ function applyLessonConfig() {
 		return;
 	}
 
+	const pauseDurationInput = $("pause-duration-min");
+	const pauseRaw = Number(pauseDurationInput ? pauseDurationInput.value : pauseDurationMinutes);
+	pauseDurationMinutes = Math.max(1, Math.min(120, Number.isFinite(pauseRaw) ? pauseRaw : 15));
+
 	lessonSchedule = lessonResult.lessons;
 	pauseMarkers = pauseResult.pauses;
 	buildLessonUI();
 	setText("lesson-current", "Lesuren en pauzes toegepast.");
+	pushSchedulerConfig();
 }
 
 function startLessonTimerSimulation() {
@@ -970,11 +1165,14 @@ function startLessonTimerSimulation() {
 	lessonTimer.nextEventIndex = 0;
 	lessonTimer.phaseStartedAt = Date.now();
 	renderLessonTimer();
+	pushSchedulerConfig();
+	pushSchedulerRun(true);
 }
 
 function stopLessonTimerSimulation() {
 	resetLessonTimerState();
 	renderLessonTimer();
+	pushSchedulerRun(false);
 }
 
 function getLessonCurrentLabel() {
@@ -988,10 +1186,18 @@ function getLessonCurrentLabel() {
 	if (lessonTimer.phase === "countdown") {
 		const leftMs = Math.max(0, lessonTimer.countdownEndsAt - Date.now());
 		const leftMin = Math.ceil(leftMs / LESSON_MS_PER_MINUTE);
-		return `15 min timer actief: nog ${leftMin} min`;
+		return `Pauzetimer (${pauseDurationMinutes} min): nog ${leftMin} min`;
 	}
 	if (lessonTimer.phase === "blink") return "Event bereikt: waarschuwing knippert";
 	return "Actief";
+}
+
+function getLessonStatusShort() {
+	if (lessonTimer.phase === "done") return "Klaar";
+	if (!lessonTimer.running) return "Inactief";
+	if (lessonTimer.phase === "countdown") return "Pauze timer";
+	if (lessonTimer.phase === "blink") return "Waarschuwing";
+	return "Lopend";
 }
 
 function renderLessonTimer() {
@@ -1057,7 +1263,8 @@ function updateLessonTimerTick() {
 		const nextEvent = lessonEvents[lessonTimer.nextEventIndex] || null;
 		if (nextEvent && lessonTimer.currentMinute >= nextEvent.minute) {
 			lessonTimer.currentMinute = nextEvent.minute;
-			setLessonPhase("countdown", LESSON_PRESTART_MINUTES * LESSON_MS_PER_MINUTE, now + LESSON_PRESTART_MINUTES * LESSON_MS_PER_MINUTE);
+			const countdownMs = pauseDurationMinutes * LESSON_MS_PER_MINUTE;
+			setLessonPhase("countdown", countdownMs, now + countdownMs);
 		}
 		renderLessonTimer();
 		return;
@@ -1105,7 +1312,11 @@ $("modal-overlay").addEventListener("click", e => { if (e.target === $("modal-ov
 document.addEventListener("keydown", e => { if (e.key === "Escape") closeModal(); });
 
 // Auto-lux toggle
-$("auto-lux").addEventListener("change", () => { state.auto = $("auto-lux").checked; renderState(); });
+$("auto-lux").addEventListener("change", () => {
+	state.auto = $("auto-lux").checked;
+	renderState();
+	pushDesiredState();
+});
 
 // Brightness slider (live)
 $("brightness").addEventListener("input", () => {
@@ -1114,6 +1325,7 @@ $("brightness").addEventListener("input", () => {
 	setText("brightness-val", `${state.br}%`);
 	setText("brightness-val-kleur", `${state.br}%`);
 	renderState();
+	pushDesiredState();
 });
 
 // Automation sliders
@@ -1152,6 +1364,7 @@ if (applyBtn) {
 		state.mode = "custom";
 		state.effects = { wave: false, pulse: false, strobe: false, rainbow: false };
 		renderState();
+		pushDesiredState();
 	});
 }
 
@@ -1219,6 +1432,23 @@ document.querySelectorAll(".preset-btn[data-minutes]").forEach(btn => {
 //  SIMULATION TICK
 // ═══════════════════════════════════════════════
 function tick() {
+	if (backendSync.enabled) {
+		const t = Date.now() / 1000;
+		if (state.manualTimer.active && state.manualTimer.endAt) {
+			if (Date.now() >= state.manualTimer.endAt) {
+				state.mode = "off";
+				state.effects = { wave: false, pulse: false, strobe: false, rainbow: false };
+				pushDesiredState();
+				stopManualTimer(true);
+			}
+		}
+		updateLessonTimerTick();
+		renderState();
+		renderLEDFrame(t);
+		updateModal();
+		return;
+	}
+
 	const t = Date.now() / 1000;
 	state.lux  = Math.round(300 + 250 * Math.sin(t * 0.6));
 	state.temp = 22 + 2.2 * Math.sin(t * 0.2);
@@ -1257,7 +1487,7 @@ initNav();
 initChart();
 initLedCanvas();
 renderState();
-setConn(true, "Simulator actief");
+initBackendSync();
 updateManualTimerUI();
 tick();
 setInterval(tick, 120);
