@@ -206,3 +206,43 @@ Exec=env LED_BACKEND_URL=http://192.168.0.201:3001 /usr/bin/python3 /opt/led-pi/
 ```
 
 This app is touch-first and runs fullscreen at login.
+
+### 9.1 Local standalone mode on Pi (no ESP32)
+
+If you want the Pi to run everything locally right now (native app + local backend simulator), run:
+
+```bash
+sudo mkdir -p /opt/led-pi/native-controller /opt/led-pi/deploy/native-app
+sudo cp /tmp/app.py /opt/led-pi/native-controller/app.py
+sudo cp /tmp/led-controller.desktop /opt/led-pi/deploy/native-app/led-controller.desktop
+sudo cp /tmp/install-native-controller.sh /opt/led-pi/deploy/native-app/install-native-controller.sh
+chmod +x /opt/led-pi/native-controller/app.py /opt/led-pi/deploy/native-app/install-native-controller.sh
+/opt/led-pi/deploy/native-app/install-native-controller.sh
+sudo reboot
+```
+
+After reboot the native fullscreen touch app starts automatically and controls the local simulator backend on `127.0.0.1:3001`.
+
+### 9.2 One-command deploy from Mac
+
+From your Mac, use the helper script in the repository root:
+
+```bash
+cd /Users/alessio/Documents/GitHub/LEDTEST
+chmod +x deploy-native.sh
+./deploy-native.sh
+```
+
+Optional custom user/ip:
+
+```bash
+./deploy-native.sh ledvives 192.168.0.93
+```
+
+What it does:
+
+- compile check for `pi-system/native-controller/app.py`
+- upload to `/tmp/app.py` on Pi
+- copy to `/home/<user>/LEDTEST/pi-system/native-controller/app.py`
+- restart the native app
+- print process + last log lines

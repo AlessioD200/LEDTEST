@@ -1,6 +1,6 @@
 [Desktop Entry]
 Type=Application
 Name=LED Native Controller
-Exec=/usr/bin/python3 /opt/led-pi/native-controller/app.py
+Exec=sh -c 'sleep 3; DISPLAY=:0 XAUTHORITY=/home/ledvives/.Xauthority /usr/bin/python3 /opt/led-pi/native-controller/app.py'
 Terminal=false
 X-GNOME-Autostart-enabled=true
