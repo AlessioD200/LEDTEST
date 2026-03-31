@@ -5,9 +5,9 @@ Requires=led-backend.service
 
 [Service]
 Type=simple
-User=pi
+User=ledvives
 Environment=DISPLAY=:0
-Environment=XAUTHORITY=/home/pi/.Xauthority
+Environment=XAUTHORITY=/home/ledvives/.Xauthority
 ExecStart=/usr/bin/chromium-browser --kiosk --incognito --noerrdialogs --disable-infobars --touch-events=enabled --overscroll-history-navigation=0 --force-device-scale-factor=1.2 http://127.0.0.1:3000
 Restart=always
 RestartSec=5

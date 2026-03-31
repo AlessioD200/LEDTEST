@@ -96,9 +96,9 @@ sudo systemctl start led-backend.service
 sudo systemctl start led-kiosk.service
 ```
 
-## 4.1) SmartiPi Touch 7-inch notes
+## 4.1) Smart Pi Touch 7-inch notes
 
-For a SmartiPi Touch (7 inch), this project is designed to be fully touch-driven in browser kiosk mode:
+For a Smart Pi Touch (7 inch), this project is designed to be fully touch-driven in browser kiosk mode:
 
 - all controls are web-based (no desktop interaction needed)
 - dashboard values and settings are visible and editable by touch
