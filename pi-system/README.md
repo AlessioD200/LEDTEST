@@ -223,7 +223,11 @@ sudo reboot
 
 After reboot the native fullscreen touch app starts automatically and controls the local simulator backend on `127.0.0.1:3001`.
 
-The Kivy app includes an `Info & Updates` page that checks for a staged update file in `/tmp/app_kivy.py` and can install it locally without `.git`.
+The Kivy app includes an `Info & Updates` page that checks `origin/main` via git and can run `git pull --ff-only` directly on the Pi repo (`/home/ledvives/LEDTEST`).
+After a push from your Mac, open the app on the Pi and use:
+
+- `Check git updates`
+- `Update via git pull`
 
 ### 9.2 One-command deploy from Mac
 

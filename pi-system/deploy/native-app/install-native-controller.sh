@@ -11,11 +11,14 @@ mkdir -p "$APP_DIR"
 mkdir -p "$ASSET_DIR"
 mkdir -p "$AUTOSTART_DIR"
 
-SOURCE_APP="/tmp/app_kivy.py"
-if [[ -f "$SOURCE_APP" ]]; then
-	cp "$SOURCE_APP" "$APP_DIR/app_kivy.py"
+SOURCE_APP_REPO="/home/ledvives/LEDTEST/pi-system/native-controller/app_kivy.py"
+SOURCE_APP_STAGED="/tmp/app_kivy.py"
+if [[ -f "$SOURCE_APP_REPO" ]]; then
+	cp "$SOURCE_APP_REPO" "$APP_DIR/app_kivy.py"
+elif [[ -f "$SOURCE_APP_STAGED" ]]; then
+	cp "$SOURCE_APP_STAGED" "$APP_DIR/app_kivy.py"
 elif [[ ! -f "$APP_DIR/app_kivy.py" ]]; then
-	echo "Missing app_kivy.py in /tmp and $APP_DIR"
+	echo "Missing app_kivy.py in repo, /tmp, and $APP_DIR"
 	exit 1
 fi
 chmod +x "$APP_DIR/app_kivy.py"

@@ -1,11 +1,11 @@
 #!/usr/bin/env python3
 """Kivy-based Raspberry Pi touchscreen LED controller."""
 
-import hashlib
 import json
 import math
 import os
 import shutil
+import subprocess
 import sys
 import threading
 import time
@@ -32,9 +32,16 @@ from kivy.uix.textinput import TextInput
 from kivy.uix.widget import Widget
 
 BACKEND_URL = os.environ.get("LED_BACKEND_URL", "http://127.0.0.1:3001")
-UPDATE_STAGING_FILE = Path(os.environ.get("LED_UPDATE_STAGING", "/tmp/app_kivy.py"))
+UPDATE_REPO_DIR = Path(os.environ.get("LED_UPDATE_REPO_DIR", "/home/ledvives/LEDTEST"))
+UPDATE_BRANCH = os.environ.get("LED_UPDATE_BRANCH", "main")
+REPO_APP_REL = Path("pi-system/native-controller/app_kivy.py")
+REPO_SYNC_TARGETS = [
+    (Path("pi-system/deploy/native-app/led-controller.desktop"), Path("/opt/led-pi/deploy/native-app/led-controller.desktop")),
+    (Path("pi-system/deploy/native-app/install-native-controller.sh"), Path("/opt/led-pi/deploy/native-app/install-native-controller.sh")),
+]
 POLL_SECONDS = 1.2
 ANIM_SECONDS = 1 / 30
+KIOSK_ENFORCE_SECONDS = 2.0
 
 MODES = ["white", "warm", "red", "green", "blue", "purple", "cyan", "yellow", "off"]
 EFFECTS = ["none", "wave", "pulse", "strobe", "rainbow"]
@@ -320,10 +327,11 @@ class LEDControllerApp(App):
         self.manual_timer_event = None
         self.last_timer_power = None
         self.app_file = Path(__file__).resolve()
+        self.repo_dir = UPDATE_REPO_DIR
 
     def build(self):
         Window.clearcolor = BG
-        Window.fullscreen = True
+        self.enforce_kiosk_window()
 
         root = BoxLayout(orientation="horizontal")
 
@@ -346,7 +354,7 @@ class LEDControllerApp(App):
         self.sidebar.add_widget(self.make_action_button("Power ON", GREEN, lambda *_: self.send_command({"power": True})))
         self.sidebar.add_widget(self.make_action_button("Power OFF", (0.69, 0.0, 0.13, 1), lambda *_: self.send_command({"power": False})))
         self.sidebar.add_widget(self.make_action_button("LED status opvragen", (0.19, 0.21, 0.25, 1), lambda *_: self.fetch_state_async()))
-        self.sidebar.add_widget(self.make_action_button("Exit fullscreen", (0.19, 0.21, 0.25, 1), lambda *_: setattr(Window, "fullscreen", False)))
+        self.sidebar.add_widget(self.make_action_button("Herlaad fullscreen", (0.19, 0.21, 0.25, 1), lambda *_: self.enforce_kiosk_window()))
         self.sidebar.add_widget(Widget())
 
         self.status_screen = self.build_status_screen()
@@ -362,8 +370,23 @@ class LEDControllerApp(App):
         self.switch_screen("Status")
         Clock.schedule_interval(self.poll_state, POLL_SECONDS)
         Clock.schedule_interval(self.animation_tick, ANIM_SECONDS)
+        Clock.schedule_interval(lambda _dt: self.enforce_kiosk_window(), KIOSK_ENFORCE_SECONDS)
         Clock.schedule_once(lambda _dt: self.fetch_state_async(), 0.2)
         return root
+
+    def on_start(self):
+        # Run once after window creation to keep the app in front in kiosk setups.
+        self.enforce_kiosk_window()
+
+    def enforce_kiosk_window(self):
+        Window.borderless = True
+        Window.fullscreen = "auto"
+        if hasattr(Window, "always_on_top"):
+            Window.always_on_top = True
+        if hasattr(Window, "show_cursor"):
+            Window.show_cursor = False
+        if hasattr(Window, "raise_window"):
+            Window.raise_window()
 
     def _update_sidebar(self, *_args):
         self.sidebar_bg.pos = self.sidebar.pos
@@ -578,20 +601,22 @@ class LEDControllerApp(App):
 
     def build_info_screen(self):
         screen = Section(name="Info & Updates")
-        self.page_header(screen.content, "Info & Updates", "Updatecheck werkt nu zonder .git via een staged bestand")
+        self.page_header(screen.content, "Info & Updates", "Check op updates via git en werk lokaal automatisch bij")
 
         card = Card("App informatie")
         self.backend_label = AppLabel(text=f"Backend: {BACKEND_URL}", color=TEXT, size_hint_y=None, height=dp(22), halign="left")
-        self.current_version_label = AppLabel(text="Huidige versie: laden...", color=TEXT, size_hint_y=None, height=dp(22), halign="left")
-        self.staged_version_label = AppLabel(text=f"Staged update: {UPDATE_STAGING_FILE}", color=TEXT, size_hint_y=None, height=dp(22), halign="left")
+        self.repo_label = AppLabel(text=f"Repo: {self.repo_dir}", color=TEXT, size_hint_y=None, height=dp(22), halign="left")
+        self.current_version_label = AppLabel(text="Lokale commit: laden...", color=TEXT, size_hint_y=None, height=dp(22), halign="left")
+        self.remote_version_label = AppLabel(text=f"Remote ({UPDATE_BRANCH}): laden...", color=TEXT, size_hint_y=None, height=dp(22), halign="left")
         self.update_status_label = AppLabel(text="Nog niet gecontroleerd", color=MUTED, bold=True, size_hint_y=None, height=dp(22), halign="left")
         card.add_widget(self.backend_label)
+        card.add_widget(self.repo_label)
         card.add_widget(self.current_version_label)
-        card.add_widget(self.staged_version_label)
+        card.add_widget(self.remote_version_label)
         card.add_widget(self.update_status_label)
         buttons = BoxLayout(size_hint_y=None, height=dp(46), spacing=dp(10))
-        check_btn = RoundButton(text="Check staged update", background_color=(0.19, 0.21, 0.25, 1), border_color=(0.15, 0.16, 0.2, 1), color=(1, 1, 1, 1))
-        apply_btn = RoundButton(text="Installeer staged update", background_color=GREEN, border_color=(0.09, 0.48, 0.25, 1), color=(1, 1, 1, 1))
+        check_btn = RoundButton(text="Check git updates", background_color=(0.19, 0.21, 0.25, 1), border_color=(0.15, 0.16, 0.2, 1), color=(1, 1, 1, 1))
+        apply_btn = RoundButton(text="Update via git pull", background_color=GREEN, border_color=(0.09, 0.48, 0.25, 1), color=(1, 1, 1, 1))
         restart_btn = RoundButton(text="Herstart app", background_color=RED, border_color=(0.73, 0.1, 0.15, 1), color=(1, 1, 1, 1))
         check_btn.bind(on_release=lambda *_: self.check_updates_async())
         apply_btn.bind(on_release=lambda *_: self.apply_update_async())
@@ -600,7 +625,7 @@ class LEDControllerApp(App):
         buttons.add_widget(apply_btn)
         buttons.add_widget(restart_btn)
         card.add_widget(buttons)
-        card.add_widget(AppLabel(text="Vanaf je Mac hoef je alleen nog een nieuwe app_kivy.py naar /tmp te kopiëren; deze pagina installeert die versie lokaal op de Pi.", color=MUTED, size_hint_y=None, height=dp(44), halign="left", valign="middle"))
+        card.add_widget(AppLabel(text="Na een push: Check git updates en daarna Update via git pull. De app probeert daarna ook desktop/install-bestanden lokaal te synchroniseren.", color=MUTED, size_hint_y=None, height=dp(44), halign="left", valign="middle"))
         screen.content.add_widget(card)
 
         self.refresh_version_labels()
@@ -820,39 +845,89 @@ class LEDControllerApp(App):
         if ok:
             self.fetch_state_async()
 
-    def compute_file_hash(self, path):
-        if not path.exists():
-            return None
-        digest = hashlib.sha1()
-        with path.open("rb") as handle:
-            while True:
-                chunk = handle.read(8192)
-                if not chunk:
-                    break
-                digest.update(chunk)
-        return digest.hexdigest()[:10]
+    def run_git(self, *args):
+        command = ["git", "-C", str(self.repo_dir), *args]
+        try:
+            result = subprocess.run(command, check=False, capture_output=True, text=True, timeout=20)
+        except (OSError, subprocess.SubprocessError) as exc:
+            return False, str(exc)
+        output = (result.stdout or result.stderr or "").strip()
+        return result.returncode == 0, output
+
+    def repo_ready(self):
+        return self.repo_dir.exists() and (self.repo_dir / ".git").exists()
+
+    def sync_runtime_files_from_repo(self):
+        copied = 0
+        warnings = []
+
+        source_app = self.repo_dir / REPO_APP_REL
+        if source_app.exists() and source_app.resolve() != self.app_file.resolve():
+            try:
+                self.app_file.parent.mkdir(parents=True, exist_ok=True)
+                shutil.copy2(source_app, self.app_file)
+                copied += 1
+            except OSError as exc:
+                warnings.append(f"app sync mislukt: {exc}")
+
+        for source_rel, target_path in REPO_SYNC_TARGETS:
+            source_path = self.repo_dir / source_rel
+            if not source_path.exists():
+                continue
+            try:
+                target_path.parent.mkdir(parents=True, exist_ok=True)
+                shutil.copy2(source_path, target_path)
+                copied += 1
+            except OSError as exc:
+                warnings.append(f"{target_path.name}: {exc}")
+
+        return copied, warnings
 
     def refresh_version_labels(self):
-        current_hash = self.compute_file_hash(self.app_file)
-        staged_hash = self.compute_file_hash(UPDATE_STAGING_FILE)
-        self.current_version_label.text = f"Huidige versie: {current_hash or 'onbekend'}"
-        self.staged_version_label.text = f"Staged update: {staged_hash or 'geen bestand'} ({UPDATE_STAGING_FILE})"
+        if not self.repo_ready():
+            self.current_version_label.text = "Lokale commit: geen git repo"
+            self.remote_version_label.text = f"Remote ({UPDATE_BRANCH}): onbekend"
+            return
+
+        local_ok, local = self.run_git("rev-parse", "--short", "HEAD")
+        remote_ok, remote = self.run_git("rev-parse", "--short", f"origin/{UPDATE_BRANCH}")
+        self.current_version_label.text = f"Lokale commit: {local if local_ok else 'onbekend'}"
+        self.remote_version_label.text = f"Remote ({UPDATE_BRANCH}): {remote if remote_ok else 'onbekend'}"
 
     def check_updates_async(self):
         self.update_status_label.text = "Controleren..."
 
         def worker():
-            current_hash = self.compute_file_hash(self.app_file)
-            staged_hash = self.compute_file_hash(UPDATE_STAGING_FILE)
+            if not self.repo_ready():
+                Clock.schedule_once(lambda _dt: setattr(self.update_status_label, "text", f"Geen git repo op {self.repo_dir}"), 0)
+                return
+
+            fetch_ok, fetch_out = self.run_git("fetch", "--prune", "origin")
+            if not fetch_ok:
+                Clock.schedule_once(lambda _dt: setattr(self.update_status_label, "text", f"Fetch mislukt: {fetch_out}"), 0)
+                return
+
+            local_ok, local = self.run_git("rev-parse", "--short", "HEAD")
+            remote_ok, remote = self.run_git("rev-parse", "--short", f"origin/{UPDATE_BRANCH}")
+            count_ok, counts = self.run_git("rev-list", "--left-right", "--count", f"HEAD...origin/{UPDATE_BRANCH}")
+
+            ahead = behind = 0
+            if count_ok:
+                parts = counts.split()
+                if len(parts) >= 2:
+                    ahead = int(parts[0])
+                    behind = int(parts[1])
 
             def finish(_dt):
                 self.refresh_version_labels()
-                if not staged_hash:
-                    self.update_status_label.text = "Geen staged update gevonden"
-                elif staged_hash == current_hash:
-                    self.update_status_label.text = "Staged bestand is gelijk aan huidige versie"
+                if not (local_ok and remote_ok):
+                    self.update_status_label.text = "Kon git commits niet lezen"
+                elif behind > 0:
+                    self.update_status_label.text = f"Update beschikbaar ({local} -> {remote}, {behind} commit(s) achter)"
+                elif ahead > 0:
+                    self.update_status_label.text = "Lokale branch loopt voor op origin"
                 else:
-                    self.update_status_label.text = "Nieuwe staged update beschikbaar"
+                    self.update_status_label.text = "Up-to-date met origin"
 
             Clock.schedule_once(finish, 0)
 
@@ -862,16 +937,28 @@ class LEDControllerApp(App):
         self.update_status_label.text = "Installeren..."
 
         def worker():
-            if not UPDATE_STAGING_FILE.exists():
-                Clock.schedule_once(lambda _dt: setattr(self.update_status_label, "text", "Geen staged updatebestand aanwezig"), 0)
-                return
-            try:
-                shutil.copy2(UPDATE_STAGING_FILE, self.app_file)
-            except OSError as exc:
-                Clock.schedule_once(lambda _dt: setattr(self.update_status_label, "text", f"Update mislukt: {exc}"), 0)
+            if not self.repo_ready():
+                Clock.schedule_once(lambda _dt: setattr(self.update_status_label, "text", f"Geen git repo op {self.repo_dir}"), 0)
                 return
 
-            Clock.schedule_once(lambda _dt: setattr(self.update_status_label, "text", "Update klaar, herstarten..."), 0)
+            fetch_ok, fetch_out = self.run_git("fetch", "--prune", "origin")
+            if not fetch_ok:
+                Clock.schedule_once(lambda _dt: setattr(self.update_status_label, "text", f"Fetch mislukt: {fetch_out}"), 0)
+                return
+
+            pull_ok, pull_out = self.run_git("pull", "--ff-only", "origin", UPDATE_BRANCH)
+            if not pull_ok:
+                Clock.schedule_once(lambda _dt: setattr(self.update_status_label, "text", f"Git pull mislukt: {pull_out}"), 0)
+                return
+
+            copied, warnings = self.sync_runtime_files_from_repo()
+
+            if warnings:
+                warning_text = "; ".join(warnings[:2])
+                Clock.schedule_once(lambda _dt: setattr(self.update_status_label, "text", f"Update ok, maar sync-waarschuwing: {warning_text}"), 0)
+            else:
+                Clock.schedule_once(lambda _dt: setattr(self.update_status_label, "text", f"Update klaar ({copied} bestand(en) gesynchroniseerd), herstarten..."), 0)
+
             Clock.schedule_once(lambda _dt: self.restart_self(), 0.7)
 
         threading.Thread(target=worker, daemon=True).start()
