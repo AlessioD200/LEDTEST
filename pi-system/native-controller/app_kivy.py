@@ -900,6 +900,8 @@ class LEDControllerApp(App):
     def sync_runtime_files_from_repo(self):
         copied = 0
         warnings = []
+        app_synced = False
+        app_error = ""
 
         source_app = self.repo_dir / REPO_APP_REL
         if source_app.exists() and source_app.resolve() != self.app_file.resolve():
@@ -907,8 +909,12 @@ class LEDControllerApp(App):
                 self.app_file.parent.mkdir(parents=True, exist_ok=True)
                 shutil.copy2(source_app, self.app_file)
                 copied += 1
+                app_synced = True
             except OSError as exc:
+                app_error = str(exc)
                 warnings.append(f"app sync mislukt: {exc}")
+        elif source_app.exists():
+            app_synced = True
 
         for source_rel, target_path in REPO_SYNC_TARGETS:
             source_path = self.repo_dir / source_rel
@@ -921,7 +927,7 @@ class LEDControllerApp(App):
             except OSError as exc:
                 warnings.append(f"{target_path.name}: {exc}")
 
-        return copied, warnings
+        return copied, warnings, app_synced, app_error
 
     def clean_known_repo_runtime_files(self):
         """Restore files that are often changed locally on-device outside git flow."""
@@ -1037,7 +1043,18 @@ class LEDControllerApp(App):
                 return
 
             if behind == 0:
-                copied, warnings = self.sync_runtime_files_from_repo()
+                copied, warnings, app_synced, app_error = self.sync_runtime_files_from_repo()
+                if not app_synced:
+                    detail = app_error or "runtime app niet overschreven"
+                    Clock.schedule_once(
+                        lambda _dt: setattr(
+                            self.update_status_label,
+                            "text",
+                            f"Geen nieuwe commits, maar installatie mislukt: {detail}. Gebruik sudo of start via service.",
+                        ),
+                        0,
+                    )
+                    return
                 if warnings:
                     warning_text = "; ".join(warnings[:2])
                     Clock.schedule_once(lambda _dt: setattr(self.update_status_label, "text", f"Geen nieuwe commits; sync-waarschuwing: {warning_text}"), 0)
@@ -1055,7 +1072,19 @@ class LEDControllerApp(App):
                 Clock.schedule_once(lambda _dt: setattr(self.update_status_label, "text", f"Git pull mislukt: {detail}"), 0)
                 return
 
-            copied, warnings = self.sync_runtime_files_from_repo()
+            copied, warnings, app_synced, app_error = self.sync_runtime_files_from_repo()
+
+            if not app_synced:
+                detail = app_error or "runtime app niet overschreven"
+                Clock.schedule_once(
+                    lambda _dt: setattr(
+                        self.update_status_label,
+                        "text",
+                        f"Git update binnen, maar installatie mislukt: {detail}. Gebruik sudo of start via service.",
+                    ),
+                    0,
+                )
+                return
 
             if warnings:
                 warning_text = "; ".join(warnings[:2])
