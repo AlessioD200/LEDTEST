@@ -33,7 +33,7 @@ from kivy.uix.widget import Widget
 
 BACKEND_URL = os.environ.get("LED_BACKEND_URL", "http://127.0.0.1:3001")
 UPDATE_REPO_DIR = Path(os.environ.get("LED_UPDATE_REPO_DIR", "/home/ledvives/LEDTEST"))
-UPDATE_BRANCH = os.environ.get("LED_UPDATE_BRANCH", "main")
+UPDATE_BRANCH = os.environ.get("LED_UPDATE_BRANCH")
 REPO_APP_REL = Path("pi-system/native-controller/app_kivy.py")
 REPO_SYNC_TARGETS = [
     (Path("pi-system/deploy/native-app/led-controller.desktop"), Path("/opt/led-pi/deploy/native-app/led-controller.desktop")),
@@ -347,6 +347,7 @@ class LEDControllerApp(App):
         self.last_timer_power = None
         self.app_file = Path(__file__).resolve()
         self.repo_dir = UPDATE_REPO_DIR
+        self.update_branch = UPDATE_BRANCH or "main"
 
     def build(self):
         Window.clearcolor = BG
@@ -621,12 +622,13 @@ class LEDControllerApp(App):
     def build_info_screen(self):
         screen = Section(name="Info & Updates")
         self.page_header(screen.content, "Info & Updates", "Check op updates via git en werk lokaal automatisch bij")
+        initial_branch = self.update_branch
 
         card = Card("App informatie")
         self.backend_label = AppLabel(text=f"Backend: {BACKEND_URL}", color=TEXT, size_hint_y=None, height=dp(22), halign="left")
         self.repo_label = AppLabel(text=f"Repo: {self.repo_dir}", color=TEXT, size_hint_y=None, height=dp(22), halign="left")
         self.current_version_label = AppLabel(text="Lokale commit: laden...", color=TEXT, size_hint_y=None, height=dp(22), halign="left")
-        self.remote_version_label = AppLabel(text=f"Remote ({UPDATE_BRANCH}): laden...", color=TEXT, size_hint_y=None, height=dp(22), halign="left")
+        self.remote_version_label = AppLabel(text=f"Remote ({initial_branch}): laden...", color=TEXT, size_hint_y=None, height=dp(22), halign="left")
         self.update_status_label = AppLabel(text="Nog niet gecontroleerd", color=MUTED, bold=True, size_hint_y=None, height=dp(22), halign="left")
         card.add_widget(self.backend_label)
         card.add_widget(self.repo_label)
@@ -876,6 +878,25 @@ class LEDControllerApp(App):
     def repo_ready(self):
         return self.repo_dir.exists() and (self.repo_dir / ".git").exists()
 
+    def get_target_branch(self):
+        if UPDATE_BRANCH:
+            self.update_branch = UPDATE_BRANCH
+            return self.update_branch
+
+        ok, out = self.run_git("symbolic-ref", "--short", "refs/remotes/origin/HEAD")
+        if ok and out.startswith("origin/"):
+            self.update_branch = out.split("/", 1)[1].strip() or "main"
+            return self.update_branch
+
+        for candidate in ("main", "master"):
+            ref_ok, _ = self.run_git("show-ref", "--verify", f"refs/remotes/origin/{candidate}")
+            if ref_ok:
+                self.update_branch = candidate
+                return self.update_branch
+
+        self.update_branch = "main"
+        return self.update_branch
+
     def sync_runtime_files_from_repo(self):
         copied = 0
         warnings = []
@@ -902,16 +923,39 @@ class LEDControllerApp(App):
 
         return copied, warnings
 
+    def clean_known_repo_runtime_files(self):
+        """Restore files that are often changed locally on-device outside git flow."""
+        tracked_paths = [
+            "pi-system/native-controller/app.py",
+            "pi-system/native-controller/app_kivy.py",
+        ]
+        cleaned = 0
+        warnings = []
+
+        for rel_path in tracked_paths:
+            has_changes = not self.run_git("diff", "--quiet", "--", rel_path)[0]
+            if not has_changes:
+                continue
+
+            restore_ok, restore_out = self.run_git("restore", "--worktree", "--staged", "--", rel_path)
+            if restore_ok:
+                cleaned += 1
+            else:
+                warnings.append(f"Kon {rel_path} niet herstellen: {restore_out or 'onbekende fout'}")
+
+        return cleaned, warnings
+
     def refresh_version_labels(self):
         if not self.repo_ready():
             self.current_version_label.text = "Lokale commit: geen git repo"
-            self.remote_version_label.text = f"Remote ({UPDATE_BRANCH}): onbekend"
+            self.remote_version_label.text = "Remote: onbekend"
             return
 
+        target_branch = self.get_target_branch()
         local_ok, local = self.run_git("rev-parse", "--short", "HEAD")
-        remote_ok, remote = self.run_git("rev-parse", "--short", f"origin/{UPDATE_BRANCH}")
+        remote_ok, remote = self.run_git("rev-parse", "--short", f"origin/{target_branch}")
         self.current_version_label.text = f"Lokale commit: {local if local_ok else 'onbekend'}"
-        self.remote_version_label.text = f"Remote ({UPDATE_BRANCH}): {remote if remote_ok else 'onbekend'}"
+        self.remote_version_label.text = f"Remote ({target_branch}): {remote if remote_ok else 'onbekend'}"
 
     def check_updates_async(self):
         self.update_status_label.text = "Controleren..."
@@ -926,9 +970,10 @@ class LEDControllerApp(App):
                 Clock.schedule_once(lambda _dt: setattr(self.update_status_label, "text", f"Fetch mislukt: {fetch_out}"), 0)
                 return
 
+            target_branch = self.get_target_branch()
             local_ok, local = self.run_git("rev-parse", "--short", "HEAD")
-            remote_ok, remote = self.run_git("rev-parse", "--short", f"origin/{UPDATE_BRANCH}")
-            count_ok, counts = self.run_git("rev-list", "--left-right", "--count", f"HEAD...origin/{UPDATE_BRANCH}")
+            remote_ok, remote = self.run_git("rev-parse", "--short", f"origin/{target_branch}")
+            count_ok, counts = self.run_git("rev-list", "--left-right", "--count", f"HEAD...origin/{target_branch}")
 
             ahead = behind = 0
             if count_ok:
@@ -942,11 +987,11 @@ class LEDControllerApp(App):
                 if not (local_ok and remote_ok):
                     self.update_status_label.text = "Kon git commits niet lezen"
                 elif behind > 0:
-                    self.update_status_label.text = f"Update beschikbaar ({local} -> {remote}, {behind} commit(s) achter)"
+                    self.update_status_label.text = f"Update beschikbaar ({local} -> {remote}, {behind} commit(s) achter op {target_branch})"
                 elif ahead > 0:
-                    self.update_status_label.text = "Lokale branch loopt voor op origin"
+                    self.update_status_label.text = f"Lokale branch loopt voor op origin/{target_branch}"
                 else:
-                    self.update_status_label.text = "Up-to-date met origin"
+                    self.update_status_label.text = f"Up-to-date met origin/{target_branch}"
 
             Clock.schedule_once(finish, 0)
 
@@ -965,9 +1010,49 @@ class LEDControllerApp(App):
                 Clock.schedule_once(lambda _dt: setattr(self.update_status_label, "text", f"Fetch mislukt: {fetch_out}"), 0)
                 return
 
-            pull_ok, pull_out = self.run_git("pull", "--ff-only", "origin", UPDATE_BRANCH)
+            cleaned, clean_warnings = self.clean_known_repo_runtime_files()
+            if clean_warnings:
+                warning_text = "; ".join(clean_warnings[:2])
+                Clock.schedule_once(lambda _dt: setattr(self.update_status_label, "text", f"Kon lokale runtime wijzigingen niet opschonen: {warning_text}"), 0)
+                return
+
+            target_branch = self.get_target_branch()
+            count_ok, counts = self.run_git("rev-list", "--left-right", "--count", f"HEAD...origin/{target_branch}")
+            ahead = behind = 0
+            if count_ok:
+                parts = counts.split()
+                if len(parts) >= 2:
+                    ahead = int(parts[0])
+                    behind = int(parts[1])
+
+            if ahead > 0 and behind > 0:
+                Clock.schedule_once(
+                    lambda _dt: setattr(
+                        self.update_status_label,
+                        "text",
+                        f"Git status divergeert met origin/{target_branch}; los dit eerst op via terminal",
+                    ),
+                    0,
+                )
+                return
+
+            if behind == 0:
+                copied, warnings = self.sync_runtime_files_from_repo()
+                if warnings:
+                    warning_text = "; ".join(warnings[:2])
+                    Clock.schedule_once(lambda _dt: setattr(self.update_status_label, "text", f"Geen nieuwe commits; sync-waarschuwing: {warning_text}"), 0)
+                else:
+                    extra = f", {cleaned} lokaal gewijzigd bestand(en) hersteld" if cleaned else ""
+                    Clock.schedule_once(lambda _dt: setattr(self.update_status_label, "text", f"Geen nieuwe commits; {copied} bestand(en) gesynchroniseerd{extra}"), 0)
+                return
+
+            pull_ok, pull_out = self.run_git("pull", "--rebase", "--autostash", "origin", target_branch)
             if not pull_ok:
-                Clock.schedule_once(lambda _dt: setattr(self.update_status_label, "text", f"Git pull mislukt: {pull_out}"), 0)
+                status_ok, status_out = self.run_git("status", "--short", "--branch")
+                detail = pull_out if pull_out else "onbekende fout"
+                if status_ok and status_out:
+                    detail = f"{detail} | {status_out.splitlines()[0]}"
+                Clock.schedule_once(lambda _dt: setattr(self.update_status_label, "text", f"Git pull mislukt: {detail}"), 0)
                 return
 
             copied, warnings = self.sync_runtime_files_from_repo()
