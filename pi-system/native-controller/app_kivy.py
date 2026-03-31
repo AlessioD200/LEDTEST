@@ -282,6 +282,33 @@ class RoundButton(Button):
         self._border.rounded_rectangle = (*self.pos, *self.size, self.radius)
 
 
+class ModernInput(TextInput):
+    def __init__(self, radius=12, border_color=(0.84, 0.87, 0.92, 1), fill_color=SOFT, **kwargs):
+        kwargs.setdefault("background_normal", "")
+        kwargs.setdefault("background_active", "")
+        kwargs.setdefault("background_color", (0, 0, 0, 0))
+        kwargs.setdefault("foreground_color", TEXT)
+        kwargs.setdefault("cursor_color", RED)
+        kwargs.setdefault("padding", [dp(12), dp(11), dp(12), dp(10)])
+        kwargs.setdefault("font_size", "16sp")
+        super().__init__(**kwargs)
+        self.radius = dp(radius)
+        self.fill_color = fill_color
+        self.border_color = border_color
+        with self.canvas.before:
+            self._bg_color = Color(*self.fill_color)
+            self._bg = RoundedRectangle(radius=[self.radius])
+            self._border_color = Color(*self.border_color)
+            self._border = Line(rounded_rectangle=(0, 0, 0, 0, self.radius), width=1)
+        self.bind(pos=self._redraw, size=self._redraw)
+        self._redraw()
+
+    def _redraw(self, *_args):
+        self._bg.pos = self.pos
+        self._bg.size = self.size
+        self._border.rounded_rectangle = (*self.pos, *self.size, self.radius)
+
+
 class LedPreviewWidget(Widget):
     def __init__(self, **kwargs):
         super().__init__(size_hint_y=None, height=dp(82), **kwargs)
@@ -364,9 +391,23 @@ class LEDControllerApp(App):
         self.manual_timer_remaining_s = 0
         self.manual_timer_event = None
         self.last_timer_power = None
+        self.screen_sleep_state = None
         self.app_file = Path(__file__).resolve()
         self.repo_dir = UPDATE_REPO_DIR
         self.update_branch = UPDATE_BRANCH or "main"
+
+    def make_picker(self, text, values, **kwargs):
+        picker = Spinner(
+            text=text,
+            values=tuple(values),
+            background_normal="",
+            background_color=SOFT,
+            color=TEXT,
+            size_hint_y=None,
+            height=dp(44),
+            **kwargs,
+        )
+        return picker
 
     def build(self):
         Window.clearcolor = BG
@@ -426,6 +467,37 @@ class LEDControllerApp(App):
             Window.show_cursor = False
         if hasattr(Window, "raise_window"):
             Window.raise_window()
+
+    def request_screen_sleep(self, should_sleep):
+        should_sleep = bool(should_sleep)
+        if self.screen_sleep_state is should_sleep:
+            return
+        self.screen_sleep_state = should_sleep
+        threading.Thread(target=self._set_screen_sleep, args=(should_sleep,), daemon=True).start()
+
+    def _set_screen_sleep(self, should_sleep):
+        if not sys.platform.startswith("linux"):
+            return
+
+        env = os.environ.copy()
+        env.setdefault("DISPLAY", ":0")
+        env.setdefault("XAUTHORITY", str(Path.home() / ".Xauthority"))
+
+        if should_sleep:
+            commands = [
+                ["xset", "dpms", "force", "off"],
+            ]
+        else:
+            commands = [
+                ["xset", "dpms", "force", "on"],
+                ["xset", "s", "reset"],
+            ]
+
+        for command in commands:
+            try:
+                subprocess.run(command, check=False, capture_output=True, env=env, timeout=2)
+            except (OSError, subprocess.SubprocessError):
+                continue
 
     def _update_sidebar(self, *_args):
         self.sidebar_bg.pos = self.sidebar.pos
@@ -528,7 +600,7 @@ class LEDControllerApp(App):
         screen.content.add_widget(brightness_card)
 
         effect_card = Card("Effect")
-        self.effect_spinner = Spinner(text="none", values=EFFECTS, size_hint_y=None, height=dp(44), background_normal="", background_color=SOFT, color=TEXT)
+        self.effect_spinner = self.make_picker(text="none", values=EFFECTS)
         effect_apply = RoundButton(text="Effect toepassen", size_hint_y=None, height=dp(44), background_color=RED, border_color=(0.73, 0.1, 0.15, 1), color=(1, 1, 1, 1))
         effect_apply.bind(on_release=lambda *_: self.send_command({"effect": self.effect_spinner.text}))
         effect_card.add_widget(self.effect_spinner)
@@ -588,16 +660,17 @@ class LEDControllerApp(App):
         timer_row.add_widget(self.timer_switch)
         timer_card.add_widget(timer_row)
         time_row = BoxLayout(size_hint_y=None, height=dp(44), spacing=dp(8))
-        self.timer_on_input = TextInput(text="07:00", multiline=False, size_hint_x=0.35)
-        self.timer_off_input = TextInput(text="22:00", multiline=False, size_hint_x=0.35)
+        timer_values = [f"{hour:02d}:{minute:02d}" for hour in range(24) for minute in (0, 15, 30, 45)]
+        self.timer_on_input = self.make_picker(text="07:00", values=timer_values, size_hint_x=0.35)
+        self.timer_off_input = self.make_picker(text="22:00", values=timer_values, size_hint_x=0.35)
         time_row.add_widget(AppLabel(text="Aan", color=MUTED, bold=True, size_hint_x=0.15))
         time_row.add_widget(self.timer_on_input)
         time_row.add_widget(AppLabel(text="Uit", color=MUTED, bold=True, size_hint_x=0.15))
         time_row.add_widget(self.timer_off_input)
         timer_card.add_widget(time_row)
         manual_row = BoxLayout(size_hint_y=None, height=dp(46), spacing=dp(8))
-        self.manual_value_input = TextInput(text="10", multiline=False, input_filter="int", size_hint_x=0.2)
-        self.manual_unit_spinner = Spinner(text="minutes", values=["seconds", "minutes", "hours"], size_hint_x=0.28)
+        self.manual_value_input = ModernInput(text="10", multiline=False, input_filter="int", size_hint_x=0.2)
+        self.manual_unit_spinner = self.make_picker(text="minutes", values=["seconds", "minutes", "hours"], size_hint_x=0.28)
         start_btn = RoundButton(text="Start", background_color=GREEN, border_color=(0.09, 0.48, 0.25, 1), color=(1, 1, 1, 1))
         stop_btn = RoundButton(text="Stop", background_color=(0.69, 0.0, 0.13, 1), border_color=(0.58, 0.04, 0.16, 1), color=(1, 1, 1, 1))
         start_btn.bind(on_release=lambda *_: self.start_manual_timer())
@@ -618,17 +691,17 @@ class LEDControllerApp(App):
         self.scheduler_switch = Switch(active=False)
         scheduler_row.add_widget(self.scheduler_switch)
         scheduler_row.add_widget(AppLabel(text="Pauze min", color=MUTED, bold=True))
-        self.pause_input = TextInput(text="15", multiline=False, input_filter="int", size_hint_x=0.22)
+        self.pause_input = self.make_picker(text="15", values=["5", "10", "15", "20", "30", "45", "60"], size_hint_x=0.22)
         scheduler_row.add_widget(self.pause_input)
         save_btn = RoundButton(text="Opslaan", background_color=RED, border_color=(0.73, 0.1, 0.15, 1), color=(1, 1, 1, 1), size_hint_x=0.25)
         save_btn.bind(on_release=lambda *_: self.save_scheduler())
         scheduler_row.add_widget(save_btn)
         scheduler_card.add_widget(scheduler_row)
         scheduler_card.add_widget(AppLabel(text="Lessen: naam,start,einde per regel", color=MUTED, size_hint_y=None, height=dp(20), halign="left"))
-        self.lessons_input = TextInput(text="Les 1,08:30,10:00\nLes 2,10:15,11:45", multiline=True, size_hint_y=None, height=dp(120))
+        self.lessons_input = ModernInput(text="Les 1,08:30,10:00\nLes 2,10:15,11:45", multiline=True, size_hint_y=None, height=dp(120))
         scheduler_card.add_widget(self.lessons_input)
         scheduler_card.add_widget(AppLabel(text="Pauzes: tijd per regel", color=MUTED, size_hint_y=None, height=dp(20), halign="left"))
-        self.breaks_input = TextInput(text="10:00", multiline=True, size_hint_y=None, height=dp(90))
+        self.breaks_input = ModernInput(text="10:00", multiline=True, size_hint_y=None, height=dp(90))
         scheduler_card.add_widget(self.breaks_input)
         screen.content.add_widget(scheduler_card)
         return screen
@@ -728,6 +801,7 @@ class LEDControllerApp(App):
         self.current_rgb = [int(live_color.get("r", 255)), int(live_color.get("g", 255)), int(live_color.get("b", 255))]
         self.current_brightness = live_brightness
         self.current_effect = live_effect
+        previous_power = self.current_power
         self.current_power = live_power
 
         self.preview_widget.rgb = self.current_rgb
@@ -736,6 +810,8 @@ class LEDControllerApp(App):
         self.preview_widget.effect = live_effect
         self.preview_widget.power_on = live_power
         self.preview_widget.redraw()
+        if previous_power != live_power:
+            self.request_screen_sleep(not live_power)
 
         self.online_value.text = "Online" if device.get("online", False) else "Offline"
         self.mode_live_value.text = str(live_mode).upper()
@@ -874,6 +950,7 @@ class LEDControllerApp(App):
         if "power" in payload:
             self.current_power = bool(payload.get("power"))
             self.preview_widget.power_on = self.current_power
+            self.request_screen_sleep(not self.current_power)
 
         if "brightness" in payload:
             try:
