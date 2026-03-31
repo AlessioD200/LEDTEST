@@ -1,73 +1,389 @@
 <!DOCTYPE html>
 <html lang="nl">
 <head>
-  <meta charset="UTF-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>LED Dashboard</title>
-  <link rel="stylesheet" href="styles.css" />
+	<meta charset="UTF-8" />
+	<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+	<title>LED Dashboard</title>
+	<link rel="stylesheet" href="styles.css" />
 </head>
 <body>
-  <header class="topbar shell">
-    <div class="brand-wrap">
-      <div class="vives-logo" aria-label="VIVES logo">VIVES</div>
-      <div class="brand">
-        <h1>LED Dashboard</h1>
-        <p>Realtime simulator • mobiel + desktop</p>
-      </div>
-    </div>
-    <div class="status-pill">
-      <span id="conn-dot" class="dot ok"></span>
-      <span id="conn-text">Simulator actief</span>
-    </div>
-  </header>
 
-  <main class="shell grid">
-    <section class="card card-wide">
-      <h2>Status Overzicht</h2>
-      <div class="status-grid">
-        <div class="stat-box"><span>Licht</span><strong id="lux-val">--%</strong></div>
-        <div class="stat-box"><span>Temperatuur</span><strong id="temp-val">--°C</strong></div>
-        <div class="stat-box"><span>Modus</span><strong id="mode-val">--</strong></div>
-        <div class="stat-box"><span>Helderheid</span><strong id="br-val">--%</strong></div>
-      </div>
-      <div class="chip-row" aria-label="Huidige statussen">
-        <span class="chip"><small>Verbinding</small><strong id="status-conn">Actief</strong></span>
-        <span class="chip"><small>Auto-Lux</small><strong id="status-auto">Uit</strong></span>
-        <span class="chip"><small>Effecten</small><strong id="status-effects">Geen actief</strong></span>
-        <span class="chip"><small>Regeling</small><strong id="status-control">Handmatig</strong></span>
-      </div>
-      <p class="small" id="updated-at">Laatste update: --</p>
-    </section>
+	<!-- TOP BAR – full width -->
+	<header class="topbar">
+		<div class="brand-wrap">
+			<img src="Logo-v.png" alt="VIVES" class="vives-logo-img" />
+			<div class="brand-text">
+				<h1>LED Dashboard</h1>
+				<p>Realtime simulator</p>
+			</div>
+		</div>
+		<div class="topbar-right">
+			<div class="status-pill">
+				<span id="conn-dot" class="dot ok"></span>
+				<span id="conn-text">Simulator actief</span>
+			</div>
+		</div>
+	</header>
 
-    <section class="card">
-      <h2>Functie: Kleur & Modus</h2>
-      <p class="small">Selecteer exact één basismodus.</p>
-      <div class="color-grid" id="mode-buttons"></div>
-    </section>
+	<!-- LAYOUT WRAPPER -->
+	<div class="layout">
 
-    <section class="card">
-      <h2>Functie: Automatisatie</h2>
-      <label class="switch-row">
-        <span>Auto-Lux</span>
-        <input type="checkbox" id="auto-lux" />
-      </label>
-      <label class="small" for="brightness">Master helderheid</label>
-      <input type="range" id="brightness" min="1" max="100" value="50" />
-      <p class="small">Werkt alleen handmatig wanneer Auto-Lux uit staat.</p>
-    </section>
+		<!-- SIDEBAR -->
+		<nav class="sidebar" id="sidebar">
+			<ul class="nav-list">
+				<li>
+					<button class="nav-btn active" data-page="status">
+						<svg viewBox="0 0 24 24" fill="currentColor"><path d="M3 13h4v8H3zm5-5h4v13H8zm5-5h4v18h-4z"/></svg>
+						<span>Status</span>
+					</button>
+				</li>
+				<li>
+					<button class="nav-btn" data-page="kleur">
+						<svg viewBox="0 0 24 24" fill="currentColor"><path d="M12 3c-4.97 0-9 4.03-9 9s4.03 9 9 9c.83 0 1.5-.67 1.5-1.5 0-.39-.15-.74-.39-1.01-.23-.26-.38-.61-.38-.99 0-.83.67-1.5 1.5-1.5H16c2.76 0 5-2.24 5-5 0-4.42-4.03-8-9-8zm-5.5 9c-.83 0-1.5-.67-1.5-1.5S5.67 9 6.5 9 8 9.67 8 10.5 7.33 12 6.5 12zm3-4C8.67 8 8 7.33 8 6.5S8.67 5 9.5 5s1.5.67 1.5 1.5S10.33 8 9.5 8zm5 0c-.83 0-1.5-.67-1.5-1.5S13.67 5 14.5 5s1.5.67 1.5 1.5S15.33 8 14.5 8zm3 4c-.83 0-1.5-.67-1.5-1.5S16.67 9 17.5 9s1.5.67 1.5 1.5-.67 1.5-1.5 1.5z"/></svg>
+						<span>Kleur &amp; Modus</span>
+					</button>
+				</li>
+				<li>
+					<button class="nav-btn" data-page="automatisatie">
+						<svg viewBox="0 0 24 24" fill="currentColor"><path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm-2 14.5v-9l6 4.5-6 4.5z"/></svg>
+						<span>Automatisatie</span>
+					</button>
+				</li>
+			</ul>
+		</nav>
 
-    <section class="card">
-      <h2>Functie: Effecten</h2>
-      <p class="small" id="effects-summary">Actief: 0</p>
-      <div id="effects-list"></div>
-    </section>
+		<!-- MAIN CONTENT -->
+		<main class="main-content" id="main-content">
 
-    <section class="card card-wide">
-      <h2>LED Preview</h2>
-      <div id="led-strip" aria-label="LED preview"></div>
-    </section>
-  </main>
+			<!-- PAGE: STATUS -->
+			<section class="page active" id="page-status">
+				<div class="page-header">
+					<h2>Status Overzicht</h2>
+					<p class="small" id="updated-at">Laatste update: --</p>
+				</div>
 
-  <script src="app.js"></script>
+				<div class="status-layout">
+
+					<!-- LEFT: metrics + gauges + LED -->
+					<div class="status-left">
+
+						<div class="stat-cards">
+							<button class="stat-card clickable" data-modal="lux" aria-label="Open lux detail">
+								<div class="stat-icon lux-icon">
+									<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="5"/><line x1="12" y1="2" x2="12" y2="4"/><line x1="12" y1="20" x2="12" y2="22"/><line x1="4.22" y1="4.22" x2="5.64" y2="5.64"/><line x1="18.36" y1="18.36" x2="19.78" y2="19.78"/><line x1="2" y1="12" x2="4" y2="12"/><line x1="20" y1="12" x2="22" y2="12"/><line x1="4.22" y1="19.78" x2="5.64" y2="18.36"/><line x1="18.36" y1="5.64" x2="19.78" y2="4.22"/></svg>
+								</div>
+								<div class="stat-info">
+									<span class="stat-label">Lichtsterkte</span>
+									<strong class="stat-value" id="lux-val">-- lux</strong>
+									<span class="stat-meta" id="lux-meta">Gemiddelde sensorwaarde</span>
+								</div>
+								<span class="stat-arrow">›</span>
+							</button>
+
+							<button class="stat-card clickable" data-modal="temp" aria-label="Open temperatuur detail">
+								<div class="stat-icon temp-icon">
+									<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 14.04V5a2 2 0 0 0-4 0v9.04A5 5 0 1 0 14 14.04z"/></svg>
+								</div>
+								<div class="stat-info">
+									<span class="stat-label">Temperatuur</span>
+									<strong class="stat-value" id="temp-val">--°C</strong>
+									<span class="stat-meta" id="temp-meta">Omgevingssensor</span>
+								</div>
+								<span class="stat-arrow">›</span>
+							</button>
+
+							<button class="stat-card clickable" data-modal="modus" aria-label="Open modus detail">
+								<div class="stat-icon mode-icon">
+									<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="3"/><path d="M12 2v4M12 18v4M4.93 4.93l2.83 2.83M16.24 16.24l2.83 2.83M2 12h4M18 12h4M4.93 19.07l2.83-2.83M16.24 7.76l2.83-2.83"/></svg>
+								</div>
+								<div class="stat-info">
+									<span class="stat-label">Modus</span>
+									<strong class="stat-value" id="mode-val">--</strong>
+									<span class="stat-meta" id="mode-meta">Kleur en effectstatus</span>
+								</div>
+								<span class="stat-arrow">›</span>
+							</button>
+
+							<button class="stat-card clickable" data-modal="helderheid" aria-label="Open helderheid detail">
+								<div class="stat-icon br-icon">
+									<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="4"/><path d="M3 12h2M19 12h2M12 3v2M12 19v2"/></svg>
+								</div>
+								<div class="stat-info">
+									<span class="stat-label">Helderheid</span>
+									<strong class="stat-value" id="br-val">--%</strong>
+									<span class="stat-meta" id="br-meta">Handmatige regeling</span>
+								</div>
+								<span class="stat-arrow">›</span>
+							</button>
+						</div>
+
+						<!-- LED Preview – single line canvas, desktop only -->
+						<div class="led-preview-section desktop-only">
+							<h3 class="section-title">LED Preview</h3>
+							<div class="led-strip-wrap">
+								<canvas id="led-canvas" class="led-canvas"></canvas>
+							</div>
+						</div>
+
+					</div><!-- /status-left -->
+
+					<!-- RIGHT: system status chips (vertical) -->
+					<div class="status-right">
+						<h3 class="section-title">Systeemstatus</h3>
+						<div class="status-chips-sidebar">
+
+							<div class="status-chip-sidebar">
+								<div class="chip-icon chip-conn">
+									<svg viewBox="0 0 24 24" fill="currentColor"><path d="M1 9l2 2c4.97-4.97 13.03-4.97 18 0l2-2C16.93 2.93 7.08 2.93 1 9zm8 8l3 3 3-3c-1.65-1.66-4.34-1.66-6 0zm-4-4 2 2c2.76-2.76 7.24-2.76 10 0l2-2C15.14 9.14 8.87 9.14 5 13z"/></svg>
+								</div>
+								<div class="chip-body">
+									<span class="chip-label">Verbinding</span>
+									<strong class="chip-val" id="status-conn">Actief</strong>
+								</div>
+							</div>
+
+							<div class="status-chip-sidebar">
+								<div class="chip-icon chip-auto">
+									<svg viewBox="0 0 24 24" fill="currentColor"><circle cx="12" cy="12" r="5"/><path d="M12 2v2M12 20v2M4.22 4.22l1.42 1.42M18.36 18.36l1.42 1.42M2 12h2M20 12h2M4.22 19.78l1.42-1.42M18.36 5.64l1.42-1.42"/></svg>
+								</div>
+								<div class="chip-body">
+									<span class="chip-label">Auto-Lux</span>
+									<strong class="chip-val" id="status-auto">Uit</strong>
+								</div>
+							</div>
+
+							<div class="status-chip-sidebar">
+								<div class="chip-icon chip-fx">
+									<svg viewBox="0 0 24 24" fill="currentColor"><path d="M7 2v11h3v9l7-12h-4l4-8z"/></svg>
+								</div>
+								<div class="chip-body">
+									<span class="chip-label">Effecten</span>
+									<strong class="chip-val" id="status-effects">Geen actief</strong>
+								</div>
+							</div>
+
+							<div class="status-chip-sidebar">
+								<div class="chip-icon chip-ctrl">
+									<svg viewBox="0 0 24 24" fill="currentColor"><path d="M3 17v2h6v-2H3zm0-8v2h10V9H3zm10 16v-2h8v-2h-8v-2h-2v6h2zM7 9v2H3v2h4v2h2V9H7zm14 4v-2H11v2h10zm-6-4h2V7h4V5h-4V3h-2v6z"/></svg>
+								</div>
+								<div class="chip-body">
+									<span class="chip-label">Regeling</span>
+									<strong class="chip-val" id="status-control">Handmatig</strong>
+								</div>
+							</div>
+
+						</div>
+					</div><!-- /status-right -->
+
+				</div><!-- /status-layout -->
+			</section>
+
+			<!-- PAGE: KLEUR & MODUS (effecten hier) -->
+			<section class="page" id="page-kleur">
+				<div class="page-header">
+					<h2>Kleur, Modus &amp; Effecten</h2>
+					<p class="small">Selecteer kleur, modus en animatie-effecten voor de LED-strip.</p>
+				</div>
+
+				<div class="kleur-layout">
+					<div class="kleur-left">
+						<h3 class="section-title">Voorkeurkleuren &amp; Modi</h3>
+						<div class="color-grid" id="mode-buttons"></div>
+
+						<div class="manual-brightness-card" style="margin-top:22px">
+							<div class="manual-brightness-head">
+								<div>
+									<h3 class="section-title" style="margin-bottom:4px">Algemene helderheid</h3>
+									<p class="small">Handmatige helderheid voor kleur en modus. Auto-Lux schakelt deze slider uit.</p>
+								</div>
+								<span class="manual-brightness-value" id="brightness-val-kleur">50%</span>
+							</div>
+							<label class="field-label" for="brightness">Helderheid</label>
+							<input type="range" id="brightness" min="1" max="100" value="50" class="slider" />
+							<div class="slider-labels"><span>1%</span><span id="brightness-val">50%</span><span>100%</span></div>
+						</div>
+
+						<h3 class="section-title" style="margin-top:22px">Aangepaste kleur</h3>
+						<div class="custom-color-wrap">
+							<label class="field-label" for="custom-color">Kies kleur:</label>
+							<input type="color" id="custom-color" value="#ffffff" class="color-picker-input" />
+							<button class="btn" id="apply-custom-color">Toepassen</button>
+						</div>
+						<div class="custom-color-preview-row">
+							<div id="custom-color-swatch" class="custom-color-swatch"></div>
+							<span class="small" id="custom-color-hex">#ffffff</span>
+						</div>
+
+						<div class="effects-section-header" style="margin-top:24px">
+							<h3 class="section-title" style="margin-bottom:0">Effecten &amp; Animaties</h3>
+							<span class="effects-count-badge" id="effects-summary">0 actief</span>
+						</div>
+						<div class="effects-grid" id="effects-list"></div>
+					</div>
+
+					<div class="kleur-right desktop-only">
+						<h3 class="section-title">LED Preview</h3>
+						<div class="led-strip-wrap">
+							<canvas id="led-canvas-kleur" class="led-canvas"></canvas>
+						</div>
+					</div>
+				</div>
+			</section>
+
+			<!-- PAGE: AUTOMATISATIE -->
+			<section class="page" id="page-automatisatie">
+				<div class="page-header">
+					<h2>Automatisatie</h2>
+					<p class="small">Beheer automatische regelingen en schema's.</p>
+				</div>
+				<div class="auto-grid">
+
+					<div class="auto-card">
+						<div class="auto-card-header">
+							<div class="auto-icon auto-lux-icon">
+								<svg viewBox="0 0 24 24" fill="currentColor"><circle cx="12" cy="12" r="5"/><path d="M12 2v2M12 20v2M4.22 4.22l1.42 1.42M18.36 18.36l1.42 1.42M2 12h2M20 12h2"/></svg>
+							</div>
+							<div class="auto-header-text">
+								<h3>Auto-Lux</h3>
+								<p class="small">Regelt helderheid op basis van omgevingslicht.</p>
+							</div>
+							<label class="toggle"><input type="checkbox" id="auto-lux" /><span class="toggle-slider"></span></label>
+						</div>
+						<div class="auto-card-body">
+							<label class="field-label" for="lux-threshold">Drempelwaarde (lux)</label>
+							<input type="range" id="lux-threshold" min="0" max="1000" value="300" class="slider" />
+							<div class="slider-labels"><span>0 lux</span><span id="lux-threshold-val">300 lux</span><span>1000 lux</span></div>
+						</div>
+					</div>
+
+					<div class="auto-card">
+						<div class="auto-card-header">
+							<div class="auto-icon timer-icon">
+								<svg viewBox="0 0 24 24" fill="currentColor"><path d="M15 1H9v2h6V1zm-4 13h2V8h-2v6zm8.03-6.61-1.42-1.42c-.43-.43-.99-.65-1.45-.63L14.59 7.9c.34.3.57.7.7 1.1C17.09 9.54 18 10.96 18 12.5 18 15.53 15.54 18 12.5 18S7 15.53 7 12.5C7 10.96 7.91 9.54 9.71 9c.13-.4.36-.8.7-1.1L8.84 5.34c-.46-.02-1.02.2-1.45.63L5.97 7.39C4.13 9.23 3 11.73 3 14.5 3 20.28 7.72 25 13.5 25S24 20.28 24 14.5c0-2.77-1.13-5.27-2.97-7.11z"/></svg>
+							</div>
+							<div class="auto-header-text">
+								<h3>Timer</h3>
+								<p class="small">Zet LED automatisch aan/uit op tijdstip.</p>
+							</div>
+							<label class="toggle"><input type="checkbox" id="timer-enabled" /><span class="toggle-slider"></span></label>
+						</div>
+						<div class="auto-card-body">
+							<div class="time-row">
+								<div class="time-field">
+									<label class="field-label" for="timer-on">Aan om</label>
+									<input type="time" id="timer-on" value="07:00" class="input" />
+								</div>
+								<div class="time-field">
+									<label class="field-label" for="timer-off">Uit om</label>
+									<input type="time" id="timer-off" value="22:00" class="input" />
+								</div>
+							</div>
+							<div class="manual-timer-wrap">
+								<div class="manual-timer-header">
+									<h4>Manuele timer</h4>
+									<span class="manual-timer-status" id="manual-timer-status">Niet actief</span>
+								</div>
+								<div class="manual-timer-controls">
+									<div class="manual-timer-inputs">
+										<div class="time-field">
+											<label class="field-label" for="manual-timer-value">Duur</label>
+											<input type="number" id="manual-timer-value" min="1" max="240" value="10" class="input" />
+										</div>
+										<div class="time-field">
+											<label class="field-label" for="manual-timer-unit">Eenheid</label>
+											<select id="manual-timer-unit" class="input">
+												<option value="minutes" selected>Minuten</option>
+												<option value="hours">Uren</option>
+											</select>
+										</div>
+									</div>
+									<div class="manual-timer-actions">
+										<button class="btn" id="manual-timer-start">Start timer</button>
+										<button class="btn btn-secondary" id="manual-timer-stop" type="button">Stop</button>
+									</div>
+								</div>
+								<div class="manual-timer-presets">
+									<button class="preset-btn" type="button" data-minutes="10">10 min</button>
+									<button class="preset-btn" type="button" data-minutes="30">30 min</button>
+									<button class="preset-btn" type="button" data-minutes="60">1 uur</button>
+								</div>
+								<p class="small manual-timer-meta" id="manual-timer-meta">Zet de LED-strip automatisch uit na de gekozen duur.</p>
+							</div>
+						</div>
+					</div>
+
+					<div class="auto-card">
+						<div class="auto-card-header">
+							<div class="auto-icon motion-icon">
+								<svg viewBox="0 0 24 24" fill="currentColor"><path d="M13.49 5.48c1.1 0 2-.9 2-2s-.9-2-2-2-2 .9-2 2 .9 2 2 2zm-3.6 13.9 1-4.4 2.1 2v6h2v-7.5l-2.1-2 .6-3c1.3 1.5 3.3 2.5 5.5 2.5v-2c-1.9 0-3.5-1-4.3-2.4l-1-1.6c-.4-.6-1-1-1.7-1-.3 0-.5.1-.8.1l-5.2 2.2v4.7h2v-3.4l1.8-.7-1.6 8.1-4.9-1-.4 2 7 1.4z"/></svg>
+							</div>
+							<div class="auto-header-text">
+								<h3>Bewegingssensor</h3>
+								<p class="small">LED aan bij beweging detectie.</p>
+							</div>
+							<label class="toggle"><input type="checkbox" id="motion-enabled" /><span class="toggle-slider"></span></label>
+						</div>
+						<div class="auto-card-body">
+							<label class="field-label" for="motion-timeout">Vertraging na beweging</label>
+							<input type="range" id="motion-timeout" min="10" max="300" value="60" class="slider" />
+							<div class="slider-labels"><span>10s</span><span id="motion-timeout-val">60s</span><span>300s</span></div>
+						</div>
+					</div>
+
+					<div class="auto-card">
+						<div class="auto-card-header">
+							<div class="auto-icon dim-icon">
+								<svg viewBox="0 0 24 24" fill="currentColor"><path d="M20 8.69V4h-4.69L12 .69 8.69 4H4v4.69L.69 12 4 15.31V20h4.69L12 23.31 15.31 20H20v-4.69L23.31 12 20 8.69zM12 18c-3.31 0-6-2.69-6-6s2.69-6 6-6 6 2.69 6 6-2.69 6-6 6zm0-10c-2.21 0-4 1.79-4 4s1.79 4 4 4 4-1.79 4-4-1.79-4-4-4z"/></svg>
+							</div>
+							<div class="auto-header-text">
+								<h3>Dimschema</h3>
+								<p class="small">Graduele dim doorheen de dag.</p>
+							</div>
+							<label class="toggle"><input type="checkbox" id="dim-enabled" /><span class="toggle-slider"></span></label>
+						</div>
+						<div class="auto-card-body">
+							<label class="field-label" for="dim-min">Minimale helderheid</label>
+							<input type="range" id="dim-min" min="1" max="50" value="10" class="slider" />
+							<div class="slider-labels"><span>1%</span><span id="dim-min-val">10%</span><span>50%</span></div>
+						</div>
+					</div>
+
+					<div class="auto-card">
+						<div class="auto-card-header">
+							<div class="auto-icon ct-icon">
+								<svg viewBox="0 0 24 24" fill="currentColor"><path d="M6.76 4.84l-1.8-1.79-1.41 1.41 1.79 1.79 1.42-1.41zM4 10.5H1v2h3v-2zm9-9.95h-2V3.5h2V.55zm7.45 3.91-1.41-1.41-1.79 1.79 1.41 1.41 1.79-1.79zm-3.21 13.7 1.79 1.8 1.41-1.41-1.8-1.79-1.4 1.4zM20 10.5v2h3v-2h-3zm-8-5c-3.31 0-6 2.69-6 6s2.69 6 6 6 6-2.69 6-6-2.69-6-6-6zm-1 16.95h2V19.5h-2v2.95zm-7.45-3.91 1.41 1.41 1.79-1.8-1.41-1.41-1.79 1.8z"/></svg>
+							</div>
+							<div class="auto-header-text">
+								<h3>Kleurtemperatuur</h3>
+								<p class="small">Warm 's avonds, koel overdag.</p>
+							</div>
+							<label class="toggle"><input type="checkbox" id="ct-enabled" /><span class="toggle-slider"></span></label>
+						</div>
+						<div class="auto-card-body">
+							<div class="ct-preview" id="ct-preview"></div>
+							<p class="small" style="margin-top:8px">Warm wit (avond) → Koel wit (middag)</p>
+						</div>
+					</div>
+
+				</div>
+			</section>
+
+		</main>
+	</div>
+
+	<!-- MODAL OVERLAY -->
+	<div class="modal-overlay" id="modal-overlay" role="dialog" aria-modal="true">
+		<div class="modal-card" id="modal-card">
+			<div class="modal-header">
+				<h2 id="modal-title">--</h2>
+				<button class="modal-close" id="modal-close" aria-label="Sluiten">
+					<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+				</button>
+			</div>
+			<div class="modal-body" id="modal-body"></div>
+		</div>
+	</div>
+
+	<script src="app.js"></script>
 </body>
 </html>
