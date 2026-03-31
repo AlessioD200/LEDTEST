@@ -179,3 +179,30 @@ This means after reboot:
 - The `backend/` simulator mode is the recommended first test path before connecting the ESP32.
 - Later, switching to the real device is just changing `DEVICE_MODE=simulator` to `DEVICE_MODE=mqtt` and setting MQTT credentials.
 - If you use a different backend port (for example `3001`), update the kiosk service URL accordingly.
+
+## 9) Native Raspberry Pi fullscreen app (recommended)
+
+If you want a real native fullscreen app (no browser kiosk), use the Tkinter controller:
+
+- app file: `native-controller/app.py`
+- autostart desktop file: `deploy/native-app/led-controller.desktop`
+
+Install on Pi (after copying `/opt/led-pi`):
+
+```bash
+chmod +x /opt/led-pi/native-controller/app.py
+cp /opt/led-pi/deploy/native-app/led-controller.desktop ~/.config/autostart/
+sudo systemctl disable led-kiosk.service || true
+sudo systemctl stop led-kiosk.service || true
+sudo reboot
+```
+
+By default the app connects to `http://127.0.0.1:3001`.
+
+If backend runs on another machine, set env var in the desktop entry `Exec` line:
+
+```ini
+Exec=env LED_BACKEND_URL=http://192.168.0.201:3001 /usr/bin/python3 /opt/led-pi/native-controller/app.py
+```
+
+This app is touch-first and runs fullscreen at login.

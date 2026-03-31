@@ -1,0 +1,641 @@
+<!DOCTYPE html>
+<html lang="nl">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+    <title>LED Kontroler - 7" Touch</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        html, body {
+            width: 100%;
+            height: 100%;
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+            background: #1a1a1a;
+            color: #fff;
+            overflow: hidden;
+            font-size: 16px;
+        }
+
+        body {
+            display: flex;
+            flex-direction: column;
+        }
+
+        /* Header */
+        .header {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            padding: 12px 16px;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            min-height: 60px;
+            flex-wrap: wrap;
+            gap: 8px;
+        }
+
+        .header h1 {
+            font-size: 20px;
+            font-weight: 600;
+        }
+
+        .status-indicator {
+            display: flex;
+            gap: 8px;
+            align-items: center;
+            font-size: 14px;
+        }
+
+        .indicator-dot {
+            width: 12px;
+            height: 12px;
+            border-radius: 50%;
+            background: #4ade80;
+            animation: pulse 2s infinite;
+        }
+
+        .indicator-dot.offline {
+            background: #ef4444;
+            animation: none;
+        }
+
+        @keyframes pulse {
+            0%, 100% { opacity: 1; }
+            50% { opacity: 0.5; }
+        }
+
+        /* Main container */
+        .container {
+            flex: 1;
+            display: flex;
+            flex-direction: column;
+            gap: 8px;
+            padding: 12px;
+            overflow-y: auto;
+        }
+
+        /* Sections */
+        .section {
+            background: #2a2a2a;
+            border-radius: 8px;
+            padding: 12px;
+            border: 1px solid #444;
+        }
+
+        .section h2 {
+            font-size: 16px;
+            margin-bottom: 10px;
+            color: #667eea;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+        }
+
+        /* Power Control */
+        .power-control {
+            display: flex;
+            gap: 8px;
+            margin-bottom: 8px;
+        }
+
+        .btn-power {
+            flex: 1;
+            min-height: 50px;
+            border: 2px solid #444;
+            border-radius: 8px;
+            font-size: 16px;
+            font-weight: 600;
+            cursor: pointer;
+            transition: all 0.2s;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+        }
+
+        .btn-power.on {
+            background: #667eea;
+            color: white;
+            border-color: #667eea;
+        }
+
+        .btn-power.off {
+            background: #2a2a2a;
+            color: #999;
+            border-color: #666;
+        }
+
+        .btn-power:active {
+            transform: scale(0.98);
+        }
+
+        /* Mode Grid */
+        .mode-grid {
+            display: grid;
+            grid-template-columns: repeat(2, 1fr);
+            gap: 8px;
+            margin-bottom: 8px;
+        }
+
+        .mode-btn {
+            min-height: 50px;
+            border: 2px solid #444;
+            border-radius: 8px;
+            background: #2a2a2a;
+            color: #ccc;
+            font-size: 14px;
+            font-weight: 600;
+            cursor: pointer;
+            transition: all 0.2s;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+        }
+
+        .mode-btn.active {
+            border-color: #667eea;
+            background: #667eea;
+            color: white;
+        }
+
+        .mode-btn:active {
+            transform: scale(0.98);
+        }
+
+        /* Sliders */
+        .slider-group {
+            margin-bottom: 10px;
+        }
+
+        .slider-label {
+            display: flex;
+            justify-content: space-between;
+            margin-bottom: 6px;
+            font-size: 14px;
+            color: #aaa;
+        }
+
+        .slider-value {
+            color: #667eea;
+            font-weight: 600;
+        }
+
+        input[type="range"] {
+            width: 100%;
+            height: 8px;
+            border-radius: 4px;
+            background: #444;
+            outline: none;
+            -webkit-appearance: none;
+            appearance: none;
+        }
+
+        input[type="range"]::-webkit-slider-thumb {
+            -webkit-appearance: none;
+            appearance: none;
+            width: 32px;
+            height: 32px;
+            border-radius: 50%;
+            background: #667eea;
+            cursor: pointer;
+            box-shadow: 0 2px 8px rgba(102, 126, 234, 0.4);
+        }
+
+        input[type="range"]::-moz-range-thumb {
+            width: 32px;
+            height: 32px;
+            border-radius: 50%;
+            background: #667eea;
+            cursor: pointer;
+            border: none;
+            box-shadow: 0 2px 8px rgba(102, 126, 234, 0.4);
+        }
+
+        /* Effect Grid */
+        .effect-grid {
+            display: grid;
+            grid-template-columns: repeat(2, 1fr);
+            gap: 8px;
+        }
+
+        .effect-btn {
+            min-height: 45px;
+            border: 2px solid #444;
+            border-radius: 8px;
+            background: #2a2a2a;
+            color: #ccc;
+            font-size: 13px;
+            font-weight: 600;
+            cursor: pointer;
+            transition: all 0.2s;
+        }
+
+        .effect-btn.active {
+            border-color: #764ba2;
+            background: #764ba2;
+            color: white;
+        }
+
+        .effect-btn:active {
+            transform: scale(0.98);
+        }
+
+        /* LED Preview */
+        .led-preview-section {
+            background: #1a1a1a;
+            border-radius: 8px;
+            padding: 8px;
+            margin-bottom: 8px;
+        }
+
+        #ledCanvas {
+            width: 100%;
+            height: 40px;
+            border: 1px solid #444;
+            border-radius: 4px;
+            display: block;
+        }
+
+        /* Scheduler */
+        .scheduler-section {
+            background: #2a2a2a;
+            border-radius: 8px;
+            padding: 10px;
+            border: 1px solid #444;
+        }
+
+        .scheduler-row {
+            display: flex;
+            gap: 8px;
+            margin-bottom: 8px;
+        }
+
+        .scheduler-row:last-child {
+            margin-bottom: 0;
+        }
+
+        input[type="time"],
+        input[type="number"],
+        select {
+            min-height: 44px;
+            padding: 6px 10px;
+            border: 1px solid #444;
+            border-radius: 6px;
+            background: #1a1a1a;
+            color: #fff;
+            font-size: 14px;
+        }
+
+        input[type="time"]::placeholder,
+        input[type="number"]::placeholder {
+            color: #666;
+        }
+
+        /* Buttons */
+        .btn-group {
+            display: flex;
+            gap: 8px;
+            margin-top: 8px;
+        }
+
+        .btn {
+            flex: 1;
+            min-height: 44px;
+            border: 1px solid #444;
+            border-radius: 6px;
+            background: #667eea;
+            color: white;
+            font-size: 14px;
+            font-weight: 600;
+            cursor: pointer;
+            transition: all 0.2s;
+            text-transform: uppercase;
+        }
+
+        .btn:active {
+            background: #764ba2;
+            transform: scale(0.98);
+        }
+
+        .btn.secondary {
+            background: #2a2a2a;
+            border-color: #667eea;
+            color: #667eea;
+        }
+
+        .btn.secondary:active {
+            background: #1a1a1a;
+        }
+
+        /* Connection status */
+        .connection-status {
+            position: fixed;
+            bottom: 12px;
+            right: 12px;
+            font-size: 12px;
+            color: #666;
+            background: rgba(0, 0, 0, 0.5);
+            padding: 6px 10px;
+            border-radius: 4px;
+        }
+
+        .connection-status.connected {
+            color: #4ade80;
+        }
+
+        .connection-status.error {
+            color: #ef4444;
+        }
+
+        /* Responsive */
+        @media (max-height: 600px) {
+            .header {
+                min-height: 50px;
+                padding: 8px 12px;
+            }
+
+            .container {
+                padding: 8px;
+                gap: 6px;
+            }
+
+            .section {
+                padding: 8px;
+            }
+
+            .mode-grid,
+            .effect-grid {
+                gap: 6px;
+            }
+
+            .btn-power,
+            .mode-btn,
+            .btn {
+                min-height: 44px;
+                font-size: 14px;
+            }
+        }
+
+        @media (max-height: 480px) {
+            .scheduler-section {
+                display: none;
+            }
+        }
+    </style>
+</head>
+<body>
+    <div class="header">
+        <h1>🎨 LED</h1>
+        <div class="status-indicator">
+            <div class="indicator-dot" id="statusDot"></div>
+            <span id="statusText">Verbindend...</span>
+        </div>
+    </div>
+
+    <div class="container">
+        <!-- Power Control -->
+        <div class="section">
+            <div class="power-control">
+                <button class="btn-power on" id="powerOn">AAN</button>
+                <button class="btn-power off" id="powerOff">UIT</button>
+            </div>
+        </div>
+
+        <!-- Colors / Modes -->
+        <div class="section">
+            <h2>Kleur</h2>
+            <div class="mode-grid">
+                <button class="mode-btn" data-mode="wit">Wit</button>
+                <button class="mode-btn" data-mode="rood">Rood</button>
+                <button class="mode-btn" data-mode="groen">Groen</button>
+                <button class="mode-btn" data-mode="blauw">Blauw</button>
+                <button class="mode-btn" data-mode="paars">Paars</button>
+                <button class="mode-btn" data-mode="cyan">Cyan</button>
+            </div>
+        </div>
+
+        <!-- Brightness -->
+        <div class="section">
+            <div class="slider-group">
+                <div class="slider-label">
+                    <span>Helderheid</span>
+                    <span class="slider-value" id="brightnessValue">100%</span>
+                </div>
+                <input type="range" id="brightness" min="0" max="100" value="100">
+            </div>
+        </div>
+
+        <!-- Effects -->
+        <div class="section">
+            <h2>Effect</h2>
+            <div class="effect-grid">
+                <button class="effect-btn" data-effect="uit">Uit</button>
+                <button class="effect-btn" data-effect="pulse">Pulse</button>
+                <button class="effect-btn" data-effect="strobe">Strobe</button>
+                <button class="effect-btn" data-effect="wave">Golf</button>
+                <button class="effect-btn" data-effect="rainbow">Regenboog</button>
+                <button class="effect-btn" data-effect="blink">Knipperend</button>
+            </div>
+        </div>
+
+        <!-- LED Preview -->
+        <div class="led-preview-section">
+            <canvas id="ledCanvas" width="100" height="40"></canvas>
+        </div>
+
+        <!-- Scheduler -->
+        <div class="scheduler-section">
+            <h2>Planning</h2>
+            <div class="scheduler-row">
+                <input type="time" id="lessonStartTime" placeholder="Les start">
+                <input type="time" id="lessonEndTime" placeholder="Les einde">
+            </div>
+            <div class="scheduler-row">
+                <input type="number" id="pauseDurationMin" min="1" max="60" value="15" placeholder="Pauze min">
+                <button class="btn secondary" id="saveLessonConfig">Opslaan</button>
+            </div>
+        </div>
+    </div>
+
+    <div class="connection-status" id="connectionStatus">Verbinding...</div>
+
+    <script>
+        const API_BASE = window.location.origin;
+        let state = {};
+        let ws = null;
+        let animationFrameId = null;
+
+        // ==== STATE MANAGEMENT ====
+        async function apiRequest(endpoint, method = 'GET', data = null) {
+            try {
+                const options = {
+                    method,
+                    headers: { 'Content-Type': 'application/json' }
+                };
+                if (data) options.body = JSON.stringify(data);
+
+                const response = await fetch(`${API_BASE}${endpoint}`, options);
+                if (!response.ok) throw new Error(`HTTP ${response.status}`);
+                return await response.json();
+            } catch (error) {
+                console.error('API Error:', error);
+                return null;
+            }
+        }
+
+        async function loadState() {
+            const data = await apiRequest('/api/state');
+            if (data) {
+                state = data;
+                renderUI();
+            }
+        }
+
+        async function pushState(updates) {
+            await apiRequest('/api/command', 'POST', { desired: updates });
+        }
+
+        // ==== WEBSOCKET ====
+        function connectWebSocket() {
+            const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+            const wsUrl = `${protocol}//${API_BASE.split('//')[1]}/ws`;
+
+            ws = new WebSocket(wsUrl);
+            ws.onopen = () => {
+                updateConnectionStatus(true);
+                loadState();
+            };
+            ws.onmessage = (event) => {
+                const data = JSON.parse(event.data);
+                if (data.type === 'state_update') {
+                    state = { ...state, ...data.state };
+                    renderUI();
+                }
+            };
+            ws.onerror = () => updateConnectionStatus(false);
+            ws.onclose = () => {
+                updateConnectionStatus(false);
+                setTimeout(connectWebSocket, 3000);
+            };
+        }
+
+        function updateConnectionStatus(connected) {
+            const statusEl = document.getElementById('connectionStatus');
+            const dotEl = document.getElementById('statusDot');
+            const textEl = document.getElementById('statusText');
+
+            if (connected) {
+                statusEl.classList.remove('error');
+                statusEl.classList.add('connected');
+                statusEl.textContent = '✓ Verbonden';
+                dotEl.classList.remove('offline');
+                textEl.textContent = 'Online';
+            } else {
+                statusEl.classList.remove('connected');
+                statusEl.classList.add('error');
+                statusEl.textContent = '✗ Verbroken';
+                dotEl.classList.add('offline');
+                textEl.textContent = 'Offline';
+            }
+        }
+
+        // ==== UI RENDERING ====
+        function renderUI() {
+            const desired = state.desired || {};
+            const power = desired.power !== false;
+
+            // Power buttons
+            document.getElementById('powerOn').classList.toggle('on', power);
+            document.getElementById('powerOff').classList.toggle('off', !power);
+
+            // Mode buttons
+            document.querySelectorAll('.mode-btn').forEach(btn => {
+                btn.classList.toggle('active', btn.dataset.mode === desired.mode);
+            });
+
+            // Brightness
+            document.getElementById('brightness').value = desired.brightness || 100;
+            document.getElementById('brightnessValue').textContent = `${desired.brightness || 100}%`;
+
+            // Effect buttons
+            document.querySelectorAll('.effect-btn').forEach(btn => {
+                btn.classList.toggle('active', btn.dataset.effect === desired.effect);
+            });
+
+            // LED preview
+            renderLEDPreview();
+        }
+
+        function renderLEDPreview() {
+            const canvas = document.getElementById('ledCanvas');
+            const ctx = canvas.getContext('2d');
+            const desired = state.desired || {};
+
+            ctx.fillStyle = '#1a1a1a';
+            ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+            if (desired.power === false) return;
+
+            const color = desired.color || { r: 255, g: 255, b: 255 };
+            const brightness = (desired.brightness || 100) / 100;
+            const r = Math.round(color.r * brightness);
+            const g = Math.round(color.g * brightness);
+            const b = Math.round(color.b * brightness);
+
+            ctx.fillStyle = `rgb(${r}, ${g}, ${b})`;
+            ctx.fillRect(0, 0, canvas.width, canvas.height);
+        }
+
+        // ==== EVENT HANDLERS ====
+        document.getElementById('powerOn').addEventListener('click', () => {
+            pushState({ power: true });
+        });
+
+        document.getElementById('powerOff').addEventListener('click', () => {
+            pushState({ power: false });
+        });
+
+        document.querySelectorAll('.mode-btn').forEach(btn => {
+            btn.addEventListener('click', () => {
+                pushState({ mode: btn.dataset.mode });
+            });
+        });
+
+        document.getElementById('brightness').addEventListener('input', (e) => {
+            pushState({ brightness: parseInt(e.target.value) });
+        });
+
+        document.querySelectorAll('.effect-btn').forEach(btn => {
+            btn.addEventListener('click', () => {
+                pushState({ effect: btn.dataset.effect });
+            });
+        });
+
+        document.getElementById('saveLessonConfig').addEventListener('click', async () => {
+            const startTime = document.getElementById('lessonStartTime').value;
+            const endTime = document.getElementById('lessonEndTime').value;
+            const pauseMin = parseInt(document.getElementById('pauseDurationMin').value) || 15;
+
+            if (startTime && endTime) {
+                await pushState({
+                    pauseDurationMinutes: pauseMin
+                });
+
+                // Save scheduler config
+                await apiRequest('/api/command', 'POST', {
+                    schedulerConfig: {
+                        lessonStart: startTime,
+                        lessonEnd: endTime
+                    }
+                });
+
+                alert('Instellingen opgeslagen!');
+            }
+        });
+
+        // ==== INIT ====
+        connectWebSocket();
+        loadState();
+    </script>
+</body>
+</html>
