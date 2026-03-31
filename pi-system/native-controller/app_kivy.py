@@ -35,10 +35,13 @@ BACKEND_URL = os.environ.get("LED_BACKEND_URL", "http://127.0.0.1:3001")
 UPDATE_REPO_DIR = Path(os.environ.get("LED_UPDATE_REPO_DIR", "/home/ledvives/LEDTEST"))
 UPDATE_BRANCH = os.environ.get("LED_UPDATE_BRANCH")
 REPO_APP_REL = Path("pi-system/native-controller/app_kivy.py")
+REPO_RUNTIME_APP = UPDATE_REPO_DIR / REPO_APP_REL
 REPO_SYNC_TARGETS = [
+    (Path("pi-system/deploy/native-app/led-controller.desktop"), Path.home() / ".config/autostart/led-controller.desktop"),
     (Path("pi-system/deploy/native-app/led-controller.desktop"), Path("/opt/led-pi/deploy/native-app/led-controller.desktop")),
     (Path("pi-system/deploy/native-app/install-native-controller.sh"), Path("/opt/led-pi/deploy/native-app/install-native-controller.sh")),
 ]
+
 POLL_SECONDS = 1.2
 ANIM_SECONDS = 1 / 30
 KIOSK_ENFORCE_SECONDS = 2.0
@@ -454,8 +457,6 @@ class LEDControllerApp(App):
         grid = GridLayout(cols=3, spacing=dp(10), size_hint_y=None)
         grid.bind(minimum_height=grid.setter("height"))
         self.online_value = self.make_stat_box(grid, "Verbinding")
-        self.temp_value = self.make_stat_box(grid, "Temperatuur")
-        self.lux_value = self.make_stat_box(grid, "Lichtsterkte")
         self.mode_live_value = self.make_stat_box(grid, "Modus")
         self.brightness_live_value = self.make_stat_box(grid, "Helderheid")
         self.effect_live_value = self.make_stat_box(grid, "Effect")
@@ -472,9 +473,6 @@ class LEDControllerApp(App):
         screen.content.add_widget(gauges)
 
         trends = Card("Trends")
-        trends.add_widget(Label(text="Temperatuur", size_hint_y=None, height=dp(22), color=RED, bold=True, halign="left", valign="middle"))
-        self.temp_spark = SparklineWidget(accent=RED)
-        trends.add_widget(self.temp_spark)
         trends.add_widget(Label(text="Lichtsterkte", size_hint_y=None, height=dp(22), color=BLUE, bold=True, halign="left", valign="middle"))
         self.lux_spark = SparklineWidget(accent=BLUE)
         trends.add_widget(self.lux_spark)
@@ -723,8 +721,6 @@ class LEDControllerApp(App):
         self.preview_widget.redraw()
 
         self.online_value.text = "Online" if device.get("online", False) else "Offline"
-        self.temp_value.text = f"{temp:.1f} C" if temp is not None else "--"
-        self.lux_value.text = f"{lux:.0f} lux" if lux is not None else "--"
         self.mode_live_value.text = str(live_mode).upper()
         self.brightness_live_value.text = f"{live_brightness}%"
         self.effect_live_value.text = str(live_effect).upper()
@@ -734,7 +730,6 @@ class LEDControllerApp(App):
 
         if temp is not None:
             self.temp_history.append(temp)
-            self.temp_spark.set_values(list(self.temp_history))
         if lux is not None:
             self.lux_history.append(lux)
             self.lux_spark.set_values(list(self.lux_history))
@@ -902,6 +897,7 @@ class LEDControllerApp(App):
         warnings = []
         app_synced = False
         app_error = ""
+        app_manual_install = False
 
         source_app = self.repo_dir / REPO_APP_REL
         if source_app.exists() and source_app.resolve() != self.app_file.resolve():
@@ -911,8 +907,13 @@ class LEDControllerApp(App):
                 copied += 1
                 app_synced = True
             except OSError as exc:
-                app_error = str(exc)
-                warnings.append(f"app sync mislukt: {exc}")
+                if isinstance(exc, PermissionError) or getattr(exc, "errno", None) == 13:
+                    app_error = "Geen schrijfrechten op runtime pad"
+                    app_manual_install = True
+                    warnings.append("app sync overgeslagen: runtime pad vereist sudo")
+                else:
+                    app_error = str(exc)
+                    warnings.append(f"app sync mislukt: {exc}")
         elif source_app.exists():
             app_synced = True
 
@@ -927,7 +928,13 @@ class LEDControllerApp(App):
             except OSError as exc:
                 warnings.append(f"{target_path.name}: {exc}")
 
-        return copied, warnings, app_synced, app_error
+        return copied, warnings, app_synced, app_error, app_manual_install
+
+    def resolve_restart_target(self):
+        source_app = self.repo_dir / REPO_APP_REL
+        if source_app.exists():
+            return source_app
+        return self.app_file
 
     def clean_known_repo_runtime_files(self):
         """Restore files that are often changed locally on-device outside git flow."""
@@ -1043,14 +1050,18 @@ class LEDControllerApp(App):
                 return
 
             if behind == 0:
-                copied, warnings, app_synced, app_error = self.sync_runtime_files_from_repo()
+                copied, warnings, app_synced, app_error, app_manual_install = self.sync_runtime_files_from_repo()
                 if not app_synced:
                     detail = app_error or "runtime app niet overschreven"
+                    if app_manual_install:
+                        Clock.schedule_once(lambda _dt: setattr(self.update_status_label, "text", "Repo is up-to-date; herstarten vanuit git-repo..."), 0)
+                        Clock.schedule_once(lambda _dt: self.restart_self(self.resolve_restart_target()), 0.7)
+                        return
                     Clock.schedule_once(
                         lambda _dt: setattr(
                             self.update_status_label,
                             "text",
-                            f"Geen nieuwe commits, maar installatie mislukt: {detail}. Gebruik sudo of start via service.",
+                            f"Geen nieuwe commits, maar installatie mislukt: {detail}",
                         ),
                         0,
                     )
@@ -1072,15 +1083,19 @@ class LEDControllerApp(App):
                 Clock.schedule_once(lambda _dt: setattr(self.update_status_label, "text", f"Git pull mislukt: {detail}"), 0)
                 return
 
-            copied, warnings, app_synced, app_error = self.sync_runtime_files_from_repo()
+            copied, warnings, app_synced, app_error, app_manual_install = self.sync_runtime_files_from_repo()
 
             if not app_synced:
                 detail = app_error or "runtime app niet overschreven"
+                if app_manual_install:
+                    Clock.schedule_once(lambda _dt: setattr(self.update_status_label, "text", "Git update geslaagd; herstarten vanuit git-repo..."), 0)
+                    Clock.schedule_once(lambda _dt: self.restart_self(self.resolve_restart_target()), 0.7)
+                    return
                 Clock.schedule_once(
                     lambda _dt: setattr(
                         self.update_status_label,
                         "text",
-                        f"Git update binnen, maar installatie mislukt: {detail}. Gebruik sudo of start via service.",
+                        f"Git update binnen, maar installatie mislukt: {detail}",
                     ),
                     0,
                 )
@@ -1092,12 +1107,13 @@ class LEDControllerApp(App):
             else:
                 Clock.schedule_once(lambda _dt: setattr(self.update_status_label, "text", f"Update klaar ({copied} bestand(en) gesynchroniseerd), herstarten..."), 0)
 
-            Clock.schedule_once(lambda _dt: self.restart_self(), 0.7)
+            Clock.schedule_once(lambda _dt: self.restart_self(self.resolve_restart_target()), 0.7)
 
         threading.Thread(target=worker, daemon=True).start()
 
-    def restart_self(self):
-        os.execv(sys.executable, [sys.executable, str(self.app_file)])
+    def restart_self(self, target_path=None):
+        app_target = Path(target_path).resolve() if target_path else self.app_file
+        os.execv(sys.executable, [sys.executable, str(app_target)])
 
     def http_get_json(self, path):
         url = f"{BACKEND_URL}{path}"

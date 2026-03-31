@@ -6,22 +6,17 @@ ASSET_DIR="$APP_DIR/assets"
 AUTOSTART_DIR="$HOME/.config/autostart"
 BACKEND_DIR="/opt/led-pi/backend"
 ENV_FILE="$BACKEND_DIR/.env"
+REPO_APP="/home/ledvives/LEDTEST/pi-system/native-controller/app_kivy.py"
 
 mkdir -p "$APP_DIR"
 mkdir -p "$ASSET_DIR"
 mkdir -p "$AUTOSTART_DIR"
 
-SOURCE_APP_REPO="/home/ledvives/LEDTEST/pi-system/native-controller/app_kivy.py"
-SOURCE_APP_STAGED="/tmp/app_kivy.py"
-if [[ -f "$SOURCE_APP_REPO" ]]; then
-	cp "$SOURCE_APP_REPO" "$APP_DIR/app_kivy.py"
-elif [[ -f "$SOURCE_APP_STAGED" ]]; then
-	cp "$SOURCE_APP_STAGED" "$APP_DIR/app_kivy.py"
-elif [[ ! -f "$APP_DIR/app_kivy.py" ]]; then
-	echo "Missing app_kivy.py in repo, /tmp, and $APP_DIR"
+if [[ ! -f "$REPO_APP" ]]; then
+	echo "Missing app at $REPO_APP"
 	exit 1
 fi
-chmod +x "$APP_DIR/app_kivy.py"
+chmod +x "$REPO_APP"
 
 if [[ -f "/tmp/Logo-v.png" ]]; then
 	cp "/tmp/Logo-v.png" "$ASSET_DIR/Logo-v.png"
