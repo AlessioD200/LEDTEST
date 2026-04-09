@@ -1,5 +1,15 @@
 from machine import Pin, SPI, ADC
-import apa102, socket, time, random, onewire, ds18x20, json
+import apa102, socket, time, random, onewire, ds18x20, json, os
+
+try:
+    import urequests
+except:
+    urequests = None
+
+try:
+    import machine
+except:
+    machine = None
 
 # --- 1. CONFIG ---
 NUM_LEDS = 140
@@ -42,6 +52,23 @@ scheduler_config = {
     "breaks": [],
 }
 
+# --- OTA UPDATE CONFIG ---
+# Set to your own private random token before exposing ESP32 to network.
+UPDATE_AUTH_TOKEN = "Vives_plus"
+# Example: https://raw.githubusercontent.com/<owner>/<repo>/<branch>
+UPDATE_BASE_URL = "https://raw.githubusercontent.com/AlessioD200/LEDTEST/main"
+UPDATE_DEFAULT_FILES = [
+    {"local": "index.html", "remote": "web/index.html"},
+    {"local": "styles.css", "remote": "web/styles.css"},
+    {"local": "app.js", "remote": "web/app.js"},
+]
+update_last_result = {
+    "ok": False,
+    "message": "No update run yet",
+    "updated": [],
+    "ts": 0,
+}
+
 
 def clamp_int(value, low, high):
     try:
@@ -53,6 +80,77 @@ def clamp_int(value, low, high):
     if value > high:
         return high
     return value
+
+
+def _safe_remove(path):
+    try:
+        os.remove(path)
+    except:
+        pass
+
+
+def download_to_file(url, target_path):
+    if urequests is None:
+        raise Exception("urequests not available on this firmware")
+
+    resp = None
+    tmp_path = target_path + ".tmp"
+    _safe_remove(tmp_path)
+
+    try:
+        resp = urequests.get(url)
+        status = getattr(resp, "status_code", 0)
+        if status != 200:
+            raise Exception("HTTP {} for {}".format(status, url))
+
+        with open(tmp_path, "wb") as out:
+            raw = getattr(resp, "raw", None)
+            if raw and hasattr(raw, "read"):
+                while True:
+                    chunk = raw.read(512)
+                    if not chunk:
+                        break
+                    out.write(chunk)
+            else:
+                out.write(resp.content)
+
+        _safe_remove(target_path)
+        os.rename(tmp_path, target_path)
+    finally:
+        if resp:
+            try:
+                resp.close()
+            except:
+                pass
+        _safe_remove(tmp_path)
+
+
+def perform_github_update(base_url=None, files=None):
+    global update_last_result
+
+    base = base_url or UPDATE_BASE_URL
+    if not base:
+        raise Exception("UPDATE_BASE_URL is empty")
+
+    entries = files if isinstance(files, list) and len(files) > 0 else UPDATE_DEFAULT_FILES
+    updated = []
+
+    for item in entries:
+        local_path = item.get("local") if isinstance(item, dict) else None
+        remote_path = item.get("remote") if isinstance(item, dict) else None
+        if not local_path or not remote_path:
+            continue
+        url = base.rstrip("/") + "/" + str(remote_path).lstrip("/")
+        download_to_file(url, str(local_path))
+        updated.append(str(local_path))
+
+    update_last_result = {
+        "ok": True,
+        "message": "Update completed",
+        "updated": updated,
+        "ts": int(time.time()),
+    }
+    return update_last_result
 
 # --- 3. HTML (separate files on ESP filesystem to reduce RAM) ---
 
@@ -91,6 +189,12 @@ def send_json(conn, data):
     conn.send(body.encode())
 
 
+def send_forbidden(conn, msg="Forbidden"):
+    body = json.dumps({"ok": False, "error": msg})
+    conn.send(b'HTTP/1.1 403 Forbidden\r\nContent-Type: application/json\r\n\r\n')
+    conn.send(body.encode())
+
+
 def send_ok(conn):
     conn.send(b'HTTP/1.1 200 OK\r\nContent-Length: 2\r\n\r\nOK')
 
@@ -118,7 +222,7 @@ def send_static_for_path(conn, path):
             continue
 
         try:
-            header = "HTTP/1.1 200 OK\r\nContent-Type: {}\r\n\r\n".format(content_type)
+            header = "HTTP/1.1 200 OK\r\nContent-Type: {}\r\nCache-Control: no-store\r\nPragma: no-cache\r\n\r\n".format(content_type)
             conn.send(header.encode())
             while True:
                 chunk = f.read(1024)
@@ -280,17 +384,18 @@ while True:
         try:
             req = conn.recv(2048).decode("utf-8", "ignore")
             method, path, body = parse_request(req)
+            route_path = path.split("?")[0]
 
-            if method == "GET" and send_static_for_path(conn, path):
+            if method == "GET" and send_static_for_path(conn, route_path):
                 pass
 
-            elif path == "/api/sensor":
+            elif route_path == "/api/sensor":
                 send_json(conn, {"lux": perc_val, "temp": round(temp_val, 1)})
 
-            elif path == "/api/state":
+            elif route_path == "/api/state":
                 send_json(conn, build_state_payload())
 
-            elif method == "POST" and path == "/api/command":
+            elif method == "POST" and route_path == "/api/command":
                 try:
                     payload = json.loads(body) if body else {}
                     if isinstance(payload, dict):
@@ -301,7 +406,7 @@ while True:
                     pass
                 send_json(conn, {"ok": True})
 
-            elif method == "POST" and path == "/api/scheduler":
+            elif method == "POST" and route_path == "/api/scheduler":
                 try:
                     payload = json.loads(body) if body else {}
                     if isinstance(payload, dict):
@@ -316,24 +421,59 @@ while True:
                     pass
                 send_json(conn, {"ok": True})
 
-            elif method == "POST" and path == "/api/scheduler/start":
+            elif method == "POST" and route_path == "/api/scheduler/start":
                 scheduler_config["enabled"] = True
                 send_json(conn, {"ok": True})
 
-            elif method == "POST" and path == "/api/scheduler/stop":
+            elif method == "POST" and route_path == "/api/scheduler/stop":
                 scheduler_config["enabled"] = False
                 send_json(conn, {"ok": True})
 
-            elif path.startswith("/set_global"):
+            elif method == "GET" and route_path == "/api/update/status":
+                send_json(conn, update_last_result)
+
+            elif method == "POST" and route_path == "/api/update":
+                try:
+                    payload = json.loads(body) if body else {}
+                except:
+                    payload = {}
+
+                if not isinstance(payload, dict):
+                    payload = {}
+
+                token = str(payload.get("token", ""))
+                if UPDATE_AUTH_TOKEN and UPDATE_AUTH_TOKEN != "change-me" and token != UPDATE_AUTH_TOKEN:
+                    send_forbidden(conn, "Invalid token")
+                else:
+                    try:
+                        result = perform_github_update(
+                            payload.get("baseUrl"),
+                            payload.get("files"),
+                        )
+                        send_json(conn, result)
+
+                        if payload.get("reboot", True) and machine is not None:
+                            time.sleep_ms(250)
+                            machine.reset()
+                    except Exception as e:
+                        update_last_result = {
+                            "ok": False,
+                            "message": str(e),
+                            "updated": [],
+                            "ts": int(time.time()),
+                        }
+                        send_json(conn, update_last_result)
+
+            elif route_path.startswith("/set_global"):
                 try:
                     global_br = int(path.split("br=")[1]) / 100.0
                 except:
                     pass
                 send_ok(conn)
 
-            elif path.startswith("/lightshow/") and path.endswith("/toggle"):
+            elif route_path.startswith("/lightshow/") and route_path.endswith("/toggle"):
                 try:
-                    effect = path.split("/lightshow/")[1].split("/toggle")[0]
+                    effect = route_path.split("/lightshow/")[1].split("/toggle")[0]
                     now_ms = int(time.time() * 1000)
                     if now_ms - lightshow_last_trigger > 100:
                         if effect in lightshow_active:
@@ -347,13 +487,13 @@ while True:
                     pass
                 send_ok(conn)
 
-            elif path == "/toggle/auto":
+            elif route_path == "/toggle/auto":
                 auto_light = not auto_light
                 send_ok(conn)
 
-            elif path.startswith("/mode/"):
+            elif route_path.startswith("/mode/"):
                 try:
-                    mode = path.split("/mode/")[1].split("?")[0].split(" ")[0]
+                    mode = route_path.split("/mode/")[1]
                     lightshow_active.clear()
                     lightshow_start_times.clear()
                 except:

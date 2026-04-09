@@ -93,9 +93,13 @@ let chartCtx = null;
 
 // ─── Active modal ─────────────────────────────
 let activeModal = null;
+const ALLOW_SIMULATION_FALLBACK = false;
 let backendSync = {
 	enabled: false,
 	ws: null,
+	pollTimer: null,
+	reconnectTimer: null,
+	pollIntervalMs: 1200,
 	baseUrl: window.location.origin && window.location.origin !== "null"
 		? window.location.origin
 		: `${window.location.protocol}//${window.location.hostname || "127.0.0.1"}:3000`,
@@ -128,6 +132,68 @@ async function apiRequest(path, options = {}) {
 	if (!response.ok) throw new Error(`HTTP ${response.status}`);
 	if (response.status === 204) return null;
 	return response.json();
+}
+
+async function fetchUpdateStatus() {
+	const out = $("esp-update-status");
+	if (!out) return;
+	try {
+		const data = await apiRequest("/api/update/status");
+		if (!data) {
+			out.textContent = "Geen status ontvangen.";
+			return;
+		}
+		const msg = data.message || "Update status";
+		const updated = Array.isArray(data.updated) && data.updated.length
+			? ` | Bestanden: ${data.updated.join(", ")}`
+			: "";
+		out.textContent = `${data.ok ? "OK" : "Fout"}: ${msg}${updated}`;
+	} catch (err) {
+		out.textContent = `Status fout: ${err?.message || err}`;
+	}
+}
+
+async function runEspUpdateFromUi() {
+	const out = $("esp-update-status");
+	const tokenEl = $("update-token");
+	const baseEl = $("update-baseurl");
+	const rebootEl = $("update-reboot");
+	if (!out || !tokenEl || !baseEl || !rebootEl) return;
+
+	const token = (tokenEl.value || "").trim();
+	const baseUrl = (baseEl.value || "").trim();
+	if (!token) {
+		out.textContent = "Vul eerst update token in.";
+		return;
+	}
+	if (!baseUrl) {
+		out.textContent = "Vul eerst GitHub raw base URL in.";
+		return;
+	}
+
+	out.textContent = "Update gestart...";
+	try {
+		const data = await apiRequest("/api/update", {
+			method: "POST",
+			body: JSON.stringify({
+				token,
+				baseUrl,
+				reboot: !!rebootEl.checked
+			})
+		});
+
+		const msg = data?.message || "Update uitgevoerd";
+		const updated = Array.isArray(data?.updated) && data.updated.length
+			? ` | Bestanden: ${data.updated.join(", ")}`
+			: "";
+		out.textContent = `${data?.ok ? "OK" : "Fout"}: ${msg}${updated}`;
+
+		if (rebootEl.checked) {
+			setConn(false, "ESP32 herstart na update...");
+		}
+	} catch (err) {
+		out.textContent = `Update fout: ${err?.message || err}`;
+	}
 }
 
 function getDesiredPayload() {
@@ -205,7 +271,17 @@ function applyBackendState(snapshot) {
 	renderLEDFrame(Date.now() / 1000);
 	drawChart();
 	updateModal();
-	setConn(!!snapshot.device?.online, snapshot.device?.online ? "Simulator backend actief" : "Backend offline");
+	setConn(!!snapshot.device?.online, snapshot.device?.online ? "Systeem online" : "Device offline");
+}
+
+async function pollBackendState() {
+	if (!backendSync.enabled) return;
+	try {
+		const snapshot = await apiRequest("/api/state");
+		applyBackendState(snapshot);
+	} catch {
+		setConn(false, "Geen data van backend");
+	}
 }
 
 async function pushDesiredState() {
@@ -262,7 +338,7 @@ function connectBackendSocket() {
 	});
 	ws.addEventListener("close", () => {
 		if (!backendSync.enabled) return;
-		setConn(false, "Backend herverbinden...");
+		setConn(true, "Polling actief (ws offline)");
 		setTimeout(connectBackendSocket, 2000);
 	});
 	ws.addEventListener("error", () => {
@@ -276,9 +352,21 @@ async function initBackendSync() {
 		backendSync.enabled = true;
 		applyBackendState(snapshot);
 		connectBackendSocket();
+		if (!backendSync.pollTimer) {
+			backendSync.pollTimer = setInterval(pollBackendState, backendSync.pollIntervalMs);
+		}
+		if (backendSync.reconnectTimer) {
+			clearInterval(backendSync.reconnectTimer);
+			backendSync.reconnectTimer = null;
+		}
 	} catch {
 		backendSync.enabled = false;
-		setConn(true, "Lokale simulator actief");
+		setConn(false, "Backend niet bereikbaar");
+		if (!backendSync.reconnectTimer) {
+			backendSync.reconnectTimer = setInterval(() => {
+				if (!backendSync.enabled) initBackendSync();
+			}, 2500);
+		}
 	}
 }
 
@@ -658,6 +746,10 @@ function startManualTimer() {
 	state.manualTimer.active = true;
 	state.manualTimer.durationMs = durationMs;
 	state.manualTimer.endAt = Date.now() + durationMs;
+	if (state.mode === "off") {
+		state.mode = "white";
+	}
+	pushDesiredState();
 	updateManualTimerUI();
 }
 
@@ -1164,6 +1256,11 @@ function startLessonTimerSimulation() {
 	lessonTimer.currentMinute = scheduleBounds.dayStart;
 	lessonTimer.nextEventIndex = 0;
 	lessonTimer.phaseStartedAt = Date.now();
+	if (state.mode === "off") {
+		state.mode = "white";
+		state.effects = { wave: false, pulse: false, strobe: false, rainbow: false };
+		pushDesiredState();
+	}
 	renderLessonTimer();
 	pushSchedulerConfig();
 	pushSchedulerRun(true);
@@ -1172,6 +1269,8 @@ function startLessonTimerSimulation() {
 function stopLessonTimerSimulation() {
 	resetLessonTimerState();
 	renderLessonTimer();
+	state.effects = { wave: false, pulse: false, strobe: false, rainbow: false };
+	pushDesiredState();
 	pushSchedulerRun(false);
 }
 
@@ -1265,6 +1364,8 @@ function updateLessonTimerTick() {
 			lessonTimer.currentMinute = nextEvent.minute;
 			const countdownMs = pauseDurationMinutes * LESSON_MS_PER_MINUTE;
 			setLessonPhase("countdown", countdownMs, now + countdownMs);
+			state.effects = { wave: false, pulse: true, strobe: false, rainbow: false };
+			pushDesiredState();
 		}
 		renderLessonTimer();
 		return;
@@ -1277,6 +1378,8 @@ function updateLessonTimerTick() {
 		}
 		lessonTimer.nextEventIndex += 1;
 		setLessonPhase("blink", 1800);
+		state.effects = { wave: false, pulse: false, strobe: true, rainbow: false };
+		pushDesiredState();
 		renderLessonTimer();
 		return;
 	}
@@ -1289,10 +1392,14 @@ function updateLessonTimerTick() {
 		if (lessonTimer.nextEventIndex >= lessonEvents.length) {
 			lessonTimer.phase = "done";
 			lessonTimer.running = false;
+			state.effects = { wave: false, pulse: false, strobe: false, rainbow: false };
+			pushDesiredState();
 			renderLessonTimer();
 			return;
 		}
 		setLessonPhase("run", 0);
+		state.effects = { wave: false, pulse: false, strobe: false, rainbow: false };
+		pushDesiredState();
 		renderLessonTimer();
 		return;
 	}
@@ -1417,6 +1524,16 @@ if (addPauseRowBtn) {
 	});
 }
 
+const espUpdateRunBtn = $("esp-update-run");
+if (espUpdateRunBtn) {
+	espUpdateRunBtn.addEventListener("click", runEspUpdateFromUi);
+}
+
+const espUpdateRefreshBtn = $("esp-update-refresh");
+if (espUpdateRefreshBtn) {
+	espUpdateRefreshBtn.addEventListener("click", fetchUpdateStatus);
+}
+
 document.querySelectorAll(".preset-btn[data-minutes]").forEach(btn => {
 	btn.addEventListener("click", () => {
 		const valueEl = $("manual-timer-value");
@@ -1445,6 +1562,11 @@ function tick() {
 		updateLessonTimerTick();
 		renderState();
 		renderLEDFrame(t);
+		updateModal();
+		return;
+	}
+
+	if (!ALLOW_SIMULATION_FALLBACK) {
 		updateModal();
 		return;
 	}
@@ -1488,6 +1610,7 @@ initChart();
 initLedCanvas();
 renderState();
 initBackendSync();
+fetchUpdateStatus();
 updateManualTimerUI();
 tick();
 setInterval(tick, 120);

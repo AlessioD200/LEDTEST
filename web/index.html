@@ -14,13 +14,13 @@
 			<img src="Logo-v.png" alt="VIVES" class="vives-logo-img" />
 			<div class="brand-text">
 				<h1>LED Dashboard</h1>
-				<p>Realtime simulator</p>
+				<p>Realtime systeem</p>
 			</div>
 		</div>
 		<div class="topbar-right">
 			<div class="status-pill">
 				<span id="conn-dot" class="dot ok"></span>
-				<span id="conn-text">Simulator actief</span>
+				<span id="conn-text">Verbinden...</span>
 			</div>
 		</div>
 	</header>
@@ -416,6 +416,33 @@
 						<div class="auto-card-body">
 							<div class="ct-preview" id="ct-preview"></div>
 							<p class="small" style="margin-top:8px">Warm wit (avond) → Koel wit (middag)</p>
+						</div>
+					</div>
+
+					<div class="auto-card">
+						<div class="auto-card-header">
+							<div class="auto-icon">
+								<svg viewBox="0 0 24 24" fill="currentColor"><path d="M3 17h2v2h14v-2h2v4H3v-4zm9-14 5 5h-3v6h-4V8H7l5-5z"/></svg>
+							</div>
+							<div class="auto-header-text">
+								<h3>ESP32 Update</h3>
+								<p class="small">Update code rechtstreeks van GitHub (OTA).</p>
+							</div>
+						</div>
+						<div class="auto-card-body">
+							<label class="field-label" for="update-token">Update token</label>
+							<input type="password" id="update-token" class="input" placeholder="Token uit main.py" />
+							<label class="field-label" for="update-baseurl" style="margin-top:10px">GitHub raw base URL</label>
+							<input type="text" id="update-baseurl" class="input" placeholder="https://raw.githubusercontent.com/owner/repo/main" />
+							<div class="manual-timer-actions" style="margin-top:10px; align-items:center;">
+								<label class="field-label" for="update-reboot" style="margin:0;">Herstart na update</label>
+								<input type="checkbox" id="update-reboot" checked />
+							</div>
+							<div class="manual-timer-actions" style="margin-top:10px;">
+								<button class="btn" id="esp-update-run" type="button">Update ESP32</button>
+								<button class="btn btn-secondary" id="esp-update-refresh" type="button">Status verversen</button>
+							</div>
+							<p class="small" id="esp-update-status" style="margin-top:10px; word-break:break-word;">Nog geen update uitgevoerd.</p>
 						</div>
 					</div>
 
