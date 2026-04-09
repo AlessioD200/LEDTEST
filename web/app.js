@@ -162,9 +162,10 @@ function updateVersionInfoUi(versionData) {
 	}
 
 	const fw = versionData.firmware || "onbekend";
+	const buildId = versionData.buildId || "onbekend";
 	const otaCount = Number.isFinite(versionData.otaCount) ? versionData.otaCount : 0;
 	const when = formatVersionTs(versionData.lastUpdateTs);
-	espEl.textContent = `${fw} | OTA #${otaCount} | Laatste: ${when}`;
+	espEl.textContent = `${fw} | ${buildId} | OTA #${otaCount} | Laatste: ${when}`;
 }
 
 async function apiRequest(path, options = {}) {

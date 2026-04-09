@@ -87,8 +87,8 @@ scheduler_config = {
 # --- OTA UPDATE CONFIG ---
 # Set to your own private random token before exposing ESP32 to network.
 UPDATE_AUTH_TOKEN = "Vives_plus"
-# Bump manually when flashing a new firmware build over USB.
-FIRMWARE_VERSION = "esp-2026.04.09.1"
+# Auto-generated at boot from hash(main.py).
+FIRMWARE_VERSION = "fw-unknown"
 # Example: https://raw.githubusercontent.com/<owner>/<repo>/<branch>
 UPDATE_BASE_URL = "https://raw.githubusercontent.com/AlessioD200/LEDTEST/main"
 UPDATE_DEFAULT_FILES = [
@@ -105,6 +105,7 @@ update_last_result = {
 }
 version_info = {
     "firmware": FIRMWARE_VERSION,
+    "buildId": "boot-unknown",
     "otaCount": 0,
     "lastUpdateTs": 0,
     "lastUpdated": [],
@@ -228,13 +229,60 @@ def _safe_remove(path):
         pass
 
 
+def fnv1a_update(hash_val, data):
+    for b in data:
+        hash_val ^= b
+        hash_val = (hash_val * 16777619) & 0xFFFFFFFF
+    return hash_val
+
+
+def file_hash32(path):
+    try:
+        h = 2166136261
+        with open(path, "rb") as f:
+            while True:
+                chunk = f.read(512)
+                if not chunk:
+                    break
+                h = fnv1a_update(h, chunk)
+        return h
+    except:
+        return None
+
+
+def detect_firmware_version():
+    h = file_hash32("main.py")
+    if h is None:
+        return "fw-unknown"
+    return "fw-{:08x}".format(h)
+
+
+def compute_update_build_hash(paths):
+    h = 2166136261
+    if not isinstance(paths, list):
+        return h
+
+    sorted_paths = [str(p) for p in paths]
+    sorted_paths.sort()
+    for p in sorted_paths:
+        h = fnv1a_update(h, p.encode())
+        ph = file_hash32(p)
+        if ph is not None:
+            h = fnv1a_update(h, "{:08x}".format(ph).encode())
+    return h
+
+
 def load_version_info():
     global version_info
+    version_info["firmware"] = FIRMWARE_VERSION
     try:
         with open(UPDATE_VERSION_FILE, "r") as f:
             raw = f.read()
         parsed = json.loads(raw)
         if isinstance(parsed, dict):
+            build_id = parsed.get("buildId")
+            if isinstance(build_id, str) and build_id:
+                version_info["buildId"] = build_id
             version_info["otaCount"] = clamp_int(parsed.get("otaCount", 0), 0, 999999)
             version_info["lastUpdateTs"] = clamp_int(parsed.get("lastUpdateTs", 0), 0, 2147483647)
             last_updated = parsed.get("lastUpdated", [])
@@ -249,6 +297,7 @@ def save_version_info():
     _safe_remove(tmp)
     try:
         payload = {
+            "buildId": version_info.get("buildId", "boot-unknown"),
             "otaCount": int(version_info.get("otaCount", 0)),
             "lastUpdateTs": int(version_info.get("lastUpdateTs", 0)),
             "lastUpdated": version_info.get("lastUpdated", []),
@@ -353,6 +402,8 @@ def perform_github_update(base_url=None, files=None):
     }
 
     version_info["firmware"] = FIRMWARE_VERSION
+    update_hash = compute_update_build_hash(updated)
+    version_info["buildId"] = "ota-{}-{:08x}".format(int(update_last_result["ts"]), update_hash)
     version_info["otaCount"] = int(version_info.get("otaCount", 0)) + 1
     version_info["lastUpdateTs"] = int(update_last_result["ts"])
     version_info["lastUpdated"] = updated[:12]
@@ -575,6 +626,7 @@ def build_state_payload():
         "scheduler": scheduler_config,
         "version": {
             "firmware": version_info.get("firmware", FIRMWARE_VERSION),
+            "buildId": version_info.get("buildId", "boot-unknown"),
             "otaCount": version_info.get("otaCount", 0),
             "lastUpdateTs": version_info.get("lastUpdateTs", 0),
             "lastUpdated": version_info.get("lastUpdated", []),
@@ -583,6 +635,10 @@ def build_state_payload():
     return payload
 
 
+FIRMWARE_VERSION = detect_firmware_version()
+version_info["firmware"] = FIRMWARE_VERSION
+if version_info.get("buildId") in (None, "", "boot-unknown"):
+    version_info["buildId"] = "boot-{}".format(FIRMWARE_VERSION)
 load_version_info()
 
 
@@ -760,6 +816,7 @@ while True:
                     "rebootPending": bool(update_reboot_pending),
                     "version": {
                         "firmware": version_info.get("firmware", FIRMWARE_VERSION),
+                        "buildId": version_info.get("buildId", "boot-unknown"),
                         "otaCount": version_info.get("otaCount", 0),
                         "lastUpdateTs": version_info.get("lastUpdateTs", 0),
                         "lastUpdated": version_info.get("lastUpdated", []),
