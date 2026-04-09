@@ -1,11 +1,14 @@
 # Raspberry Pi 3 Touch + ESP32 LED System
 
-Complete base system for a Raspberry Pi 3 touchscreen controller.
+Native touchscreen control system for Smart Pi Touch 7 inch with real ESP32 communication.
 
-It now supports two modes:
+Primary production mode:
 
-- `simulator`: test everything without ESP32
 - `mqtt`: real communication with ESP32 over MQTT
+
+Optional fallback mode for development:
+
+- `simulator`: test without ESP32
 
 ## What is included
 
@@ -14,9 +17,37 @@ It now supports two modes:
 - `deploy/systemd/*.service`: auto-start backend + kiosk on boot
 - `esp32/esp32_led_controller.ino`: ESP32 firmware template for LED strip
 
-## 1) Quick simulator test
+## 1) Native app first (recommended)
 
-This is the default mode now.
+This project is designed to run as a real native app, not as a browser web app.
+
+Native app file:
+
+- `native-controller/app_kivy.py`
+
+Autostart entry:
+
+- `deploy/native-app/led-controller.desktop`
+
+Install script for production on Pi:
+
+- `deploy/native-app/install-native-controller.sh`
+
+Run on Pi:
+
+```bash
+cd /opt/led-pi/deploy/native-app
+LED_MQTT_USER=leduser LED_MQTT_PASSWORD=your-password ./install-native-controller.sh
+sudo reboot
+```
+
+After reboot:
+
+- native fullscreen app starts automatically
+- backend starts in `mqtt` mode
+- app controls ESP32 via backend API + MQTT transport
+
+## 2) Quick simulator test (optional)
 
 ```bash
 cd backend
@@ -32,8 +63,13 @@ Open:
 
 Default URLs now are:
 
-- `/` = existing main dashboard from `web/`
-- `/touch` = simplified touch dashboard from `backend/public/`
+- `/` = touch dashboard from `backend/public/`
+- `/legacy` = optional old browser dashboard from `web/`
+
+Important:
+
+- The ESP32 web interface is not `web/index.html`.
+- The ESP32 web interface is generated directly inside `main.py` (`get_html()`), then served by the ESP32 itself.
 
 In simulator mode:
 
@@ -42,7 +78,7 @@ In simulator mode:
 - telemetry is generated automatically
 - commands, scheduler and persisted state can already be tested end-to-end
 
-## 2) Raspberry Pi setup for real ESP32 mode
+## 3) Raspberry Pi setup for real ESP32 mode
 
 Install packages:
 
@@ -60,13 +96,13 @@ sudo systemctl restart mosquitto
 sudo systemctl enable mosquitto
 ```
 
-Set this in `.env` before switching to real hardware:
+Set this in `.env` for real hardware:
 
 ```env
 DEVICE_MODE=mqtt
 ```
 
-## 3) Backend install
+## 4) Backend install
 
 ```bash
 cd backend
@@ -78,9 +114,10 @@ npm start
 Open dashboard:
 
 - `http://<pi-ip>:3000`
-- `http://<pi-ip>:3000/touch` for the alternate simplified touch UI
+- `http://<pi-ip>:3000/touch` same touch UI (explicit route)
+- `http://<pi-ip>:3000/legacy` optional legacy browser dashboard
 
-## 4) systemd auto-start (production)
+## 5) systemd auto-start (production)
 
 Copy project to `/opt/led-pi` (expected layout `/opt/led-pi/backend`).
 
@@ -96,7 +133,7 @@ sudo systemctl start led-backend.service
 sudo systemctl start led-kiosk.service
 ```
 
-## 4.1) Smart Pi Touch 7-inch notes
+## 5.1) Smart Pi Touch 7-inch notes
 
 For a Smart Pi Touch (7 inch), this project is designed to be fully touch-driven in browser kiosk mode:
 
@@ -116,7 +153,7 @@ The provided kiosk service already enables:
 - touch events enabled
 - scale factor for better readability on 7-inch
 
-## 5) ESP32 firmware
+## 6) ESP32 firmware
 
 Open `esp32/esp32_led_controller.ino` in Arduino IDE.
 
@@ -137,7 +174,7 @@ Update these values in the sketch:
 
 Upload to ESP32.
 
-## 6) MQTT topic contract
+## 7) MQTT topic contract
 
 Using `DEVICE_ID=esp32-led-1`:
 
@@ -163,7 +200,7 @@ Using `DEVICE_ID=esp32-led-1`:
 }
 ```
 
-## 7) Persistence behavior
+## 8) Persistence behavior
 
 Backend keeps `backend/data/state.json` up to date.
 
@@ -173,14 +210,14 @@ This means after reboot:
 - scheduler settings remain available
 - touch UI reconnects and shows latest state without starting from zero
 
-## 8) Notes
+## 9) Notes
 
 - This is a production-ready baseline and can be extended with auth hardening, TLS, and richer scheduling UI.
 - The `backend/` simulator mode is the recommended first test path before connecting the ESP32.
 - Later, switching to the real device is just changing `DEVICE_MODE=simulator` to `DEVICE_MODE=mqtt` and setting MQTT credentials.
 - If you use a different backend port (for example `3001`), update the kiosk service URL accordingly.
 
-## 9) Native Raspberry Pi fullscreen app (recommended)
+## 10) Native Raspberry Pi fullscreen app (recommended)
 
 If you want a real native fullscreen app (no browser kiosk), use the Kivy controller:
 
@@ -207,7 +244,7 @@ Exec=env LED_BACKEND_URL=http://192.168.0.201:3001 /usr/bin/python3 /opt/led-pi/
 
 This app is touch-first and runs fullscreen at login.
 
-### 9.1 Local standalone mode on Pi (no ESP32)
+### 10.1 Local standalone mode on Pi (no ESP32)
 
 If you want the Pi to run everything locally right now (native app + local backend simulator), run:
 
@@ -229,7 +266,7 @@ After a push from your Mac, open the app on the Pi and use:
 - `Check git updates`
 - `Update via git pull`
 
-### 9.2 One-command deploy from Mac
+### 10.2 One-command deploy from Mac
 
 From your Mac, use the helper script in the repository root:
 

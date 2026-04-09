@@ -539,7 +539,7 @@ class LEDControllerApp(App):
 
     def build_status_screen(self):
         screen = Section(name="Status")
-        self.page_header(screen.content, "Status", "Realtime device en simulator gegevens")
+        self.page_header(screen.content, "Status", "Realtime apparaatstatus en sensorgegevens")
 
         overview = Card("Overzicht")
         grid = GridLayout(cols=3, spacing=dp(10), size_hint_y=None)

@@ -1,5 +1,6 @@
 import express from "express";
 import cors from "cors";
+import fs from "node:fs";
 import path from "node:path";
 import { WebSocketServer } from "ws";
 
@@ -62,9 +63,12 @@ export function createServer({ config, stateStore, mqttService, scheduler }) {
     res.sendFile(path.join(config.touchDashboardDir, "index.html"));
   });
 
-  app.use(express.static(config.legacyDashboardDir));
+  if (config.legacyDashboardDir && fs.existsSync(config.legacyDashboardDir)) {
+    app.use("/legacy", express.static(config.legacyDashboardDir));
+  }
+
   app.get("/", (_req, res) => {
-    res.sendFile(path.join(config.legacyDashboardDir, "index.html"));
+    res.sendFile(path.join(config.touchDashboardDir, "index.html"));
   });
 
   const server = app.listen(config.port, () => {

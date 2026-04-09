@@ -15,5 +15,6 @@ export const config = {
   deviceId: process.env.DEVICE_ID || "esp32-led-1",
   stateFile: path.resolve(__dirname, "..", process.env.STATE_FILE || "./data/state.json"),
   touchDashboardDir: path.resolve(__dirname, "..", "public"),
+  // Optional old browser dashboard. Not used by ESP32 firmware UI.
   legacyDashboardDir: path.resolve(__dirname, "..", "..", "..", "web")
 };
