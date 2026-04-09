@@ -79,6 +79,10 @@ lightshow_active = {}
 lightshow_start_times = {}
 lightshow_last_trigger = 0
 temp_read_counter = 0
+timer_countdown_active = False
+timer_countdown_end_ms = 0
+timer_countdown_total_ms = 1
+timer_done_flash_end_ms = 0
 
 bh1750_lux = None
 
@@ -507,61 +511,8 @@ def save_version_info():
 
 
 def download_to_file(url, target_path):
-    if urequests is None:
-        # Fallback to raw socket streaming when urequests is missing.
-        return download_to_file_stream(url, target_path)
-
-    resp = None
-    tmp_path = target_path + ".tmp"
-    _safe_remove(tmp_path)
-    has_default_timeout = hasattr(socket, "setdefaulttimeout")
-
-    try:
-        gc.collect()
-        if has_default_timeout:
-            try:
-                socket.setdefaulttimeout(15)
-            except:
-                pass
-        resp = urequests.get(url)
-        status = getattr(resp, "status_code", 0)
-        if status != 200:
-            raise Exception("HTTP {} for {}".format(status, url))
-
-        with open(tmp_path, "wb") as out:
-            raw = getattr(resp, "raw", None)
-            if raw and hasattr(raw, "read"):
-                while True:
-                    chunk = raw.read(512)
-                    if not chunk:
-                        break
-                    out.write(chunk)
-                    gc.collect()
-            else:
-                # Some firmware builds expose only .content, which can be memory-heavy.
-                # Fall back to socket streaming to avoid heap crashes on larger web assets.
-                try:
-                    out.close()
-                except:
-                    pass
-                _safe_remove(tmp_path)
-                return download_to_file_stream(url, target_path)
-
-        _safe_remove(target_path)
-        os.rename(tmp_path, target_path)
-        gc.collect()
-    finally:
-        if has_default_timeout:
-            try:
-                socket.setdefaulttimeout(None)
-            except:
-                pass
-        if resp:
-            try:
-                resp.close()
-            except:
-                pass
-        _safe_remove(tmp_path)
+    # Always use streaming socket downloader to avoid large-memory spikes during OTA.
+    return download_to_file_stream(url, target_path)
 
 
 def perform_github_update(base_url=None, files=None):
@@ -863,6 +814,7 @@ def parse_request(req):
 
 def apply_command_payload(payload):
     global mode, auto_light, global_br, custom_color, lightshow_active, lightshow_start_times
+    global timer_countdown_active, timer_countdown_end_ms, timer_countdown_total_ms, timer_done_flash_end_ms
 
     if "auto" in payload:
         auto_light = bool(payload.get("auto"))
@@ -895,6 +847,28 @@ def apply_command_payload(payload):
         if effect in ("wave", "pulse", "strobe", "rainbow"):
             lightshow_active[effect] = True
             lightshow_start_times[effect] = time.ticks_ms()
+
+    if "timer" in payload and isinstance(payload.get("timer"), dict):
+        timer = payload.get("timer")
+        timer_mode = timer.get("mode", "off")
+        rem_ms = clamp_int(timer.get("remainingMs", 0), 0, 86400000)
+        total_ms = clamp_int(timer.get("totalMs", 1), 1, 86400000)
+
+        if timer_mode == "countdown":
+            timer_countdown_active = True
+            timer_countdown_total_ms = max(1, total_ms)
+            timer_countdown_end_ms = time.ticks_add(time.ticks_ms(), rem_ms)
+            timer_done_flash_end_ms = 0
+        elif timer_mode == "done":
+            timer_countdown_active = False
+            timer_countdown_total_ms = 1
+            timer_countdown_end_ms = 0
+            timer_done_flash_end_ms = time.ticks_add(time.ticks_ms(), rem_ms)
+        else:
+            timer_countdown_active = False
+            timer_countdown_total_ms = 1
+            timer_countdown_end_ms = 0
+            timer_done_flash_end_ms = 0
 
 
 # --- 5. MAIN LOOP ---
@@ -1109,6 +1083,67 @@ while True:
     # 5c. LED RENDERING
     try:
         now_ms = time.ticks_ms()
+
+        # Manual timer visualization from UI payload: countdown from all LEDs to 0, then flash.
+        if timer_done_flash_end_ms:
+            if time.ticks_diff(timer_done_flash_end_ms, now_ms) > 0:
+                blink_on = ((now_ms // 180) % 2) == 0
+                for i in range(NUM_LEDS):
+                    if not blink_on:
+                        strip[i] = (0, 0, 0, 0)
+                    else:
+                        m = i % 3
+                        if m == 0:
+                            strip[i] = (255, 40, 40, 1.0)
+                        elif m == 1:
+                            strip[i] = (40, 180, 255, 1.0)
+                        else:
+                            strip[i] = (80, 255, 120, 1.0)
+                strip.write()
+                time.sleep(0.01)
+                continue
+            else:
+                timer_done_flash_end_ms = 0
+
+        if timer_countdown_active:
+            remaining_ms = time.ticks_diff(timer_countdown_end_ms, now_ms)
+            if remaining_ms <= 0:
+                timer_countdown_active = False
+                timer_done_flash_end_ms = time.ticks_add(now_ms, 3200)
+                for i in range(NUM_LEDS):
+                    strip[i] = (0, 0, 0, 0)
+                strip.write()
+                time.sleep(0.01)
+                continue
+
+            ratio = remaining_ms / float(max(1, timer_countdown_total_ms))
+            if ratio < 0:
+                ratio = 0
+            if ratio > 1:
+                ratio = 1
+
+            lit_count = int(ratio * NUM_LEDS + 0.5)
+            if lit_count < 0:
+                lit_count = 0
+            if lit_count > NUM_LEDS:
+                lit_count = NUM_LEDS
+
+            if ratio > 0.5:
+                cr, cg, cb = 255, 255, 255
+            elif ratio > 0.2:
+                cr, cg, cb = 255, 200, 80
+            else:
+                cr, cg, cb = 255, 70, 70
+
+            for i in range(NUM_LEDS):
+                if i < lit_count:
+                    strip[i] = (cr, cg, cb, 1.0)
+                else:
+                    strip[i] = (0, 0, 0, 0)
+            strip.write()
+            time.sleep(0.01)
+            continue
+
         active_effects = [e for e in lightshow_active if e in lightshow_start_times]
 
         if active_effects:

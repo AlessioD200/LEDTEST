@@ -408,6 +408,16 @@ body {
 	background: var(--surface); border: 1px solid var(--border);
 	border-radius: var(--radius); overflow: hidden; box-shadow: var(--card-shadow);
 }
+.auto-card.is-disabled {
+	opacity: .55;
+	filter: grayscale(.3);
+}
+.auto-card.is-disabled .toggle,
+.auto-card.is-disabled .slider,
+.auto-card.is-disabled .input,
+.auto-card.is-disabled button {
+	pointer-events: none;
+}
 .auto-card-header {
 	display: flex; align-items: center; gap: 12px;
 	padding: 15px 16px; border-bottom: 1px solid var(--border);

@@ -45,6 +45,14 @@ let state = {
 	motionDetected: null,
 	effects: { wave: false, pulse: false, strobe: false, rainbow: false },
 	customColor: [255, 255, 255],
+	sensorsAvailable: {
+		ldr: true,
+		bh1750: false,
+		ds18b20: false,
+		sht3x: false,
+		bme280: false,
+		pir: false
+	},
 	tempMode: {
 		enabled: false,
 		min: 19,
@@ -293,13 +301,31 @@ function getDesiredPayload() {
 	const color = state.mode === "custom"
 		? { r: state.customColor[0], g: state.customColor[1], b: state.customColor[2] }
 		: { r: (modeBase[state.mode] || [255, 255, 255])[0], g: (modeBase[state.mode] || [255, 255, 255])[1], b: (modeBase[state.mode] || [255, 255, 255])[2] };
+
+	const now = Date.now();
+	let timerPayload = { mode: "off", remainingMs: 0, totalMs: 0 };
+	if (state.manualTimer.active && state.manualTimer.endAt) {
+		timerPayload = {
+			mode: "countdown",
+			remainingMs: Math.max(0, state.manualTimer.endAt - now),
+			totalMs: Math.max(1, state.manualTimer.durationMs || 1)
+		};
+	} else if (state.manualTimer.doneFlashUntil > now) {
+		timerPayload = {
+			mode: "done",
+			remainingMs: Math.max(0, state.manualTimer.doneFlashUntil - now),
+			totalMs: 3200
+		};
+	}
+
 	return {
 		power: state.mode !== "off",
 		mode: state.mode,
 		auto: state.auto,
 		brightness: state.br,
 		color,
-		effect: activeEffect ? activeEffect.key : "none"
+		effect: activeEffect ? activeEffect.key : "none",
+		timer: timerPayload
 	};
 }
 
@@ -314,6 +340,7 @@ function applyBackendState(snapshot) {
 	state.lux = Number.isFinite(telemetry.lux) ? telemetry.lux : state.lux;
 	state.temp = Number.isFinite(telemetry.temperature) ? telemetry.temperature : state.temp;
 	state.motionDetected = typeof telemetry.motion === "boolean" ? telemetry.motion : null;
+	state.sensorsAvailable = snapshot.sensors?.available || state.sensorsAvailable;
 	state.effects = { wave: false, pulse: false, strobe: false, rainbow: false };
 	if (desired.effect && desired.effect !== "none") {
 		state.effects[desired.effect] = true;
@@ -377,6 +404,34 @@ function updateMotionSensorUi() {
 		return;
 	}
 	el.textContent = state.motionDetected ? "Beweging gedetecteerd" : "Sensor actief, geen beweging";
+}
+
+function setControlEnabled(inputId, enabled) {
+	const el = $(inputId);
+	if (!el) return;
+	el.disabled = !enabled;
+	const card = el.closest(".auto-card");
+	if (card) card.classList.toggle("is-disabled", !enabled);
+}
+
+function updateSensorCapabilityUi() {
+	const available = state.sensorsAvailable || {};
+	const hasMotion = !!available.pir;
+	const hasTemp = !!(available.ds18b20 || available.sht3x || available.bme280);
+	const hasLux = !!(available.ldr || available.bh1750);
+
+	setControlEnabled("motion-enabled", hasMotion);
+	setControlEnabled("motion-timeout", hasMotion);
+	setControlEnabled("temp-mode-enabled", hasTemp);
+	setControlEnabled("temp-min", hasTemp);
+	setControlEnabled("temp-max", hasTemp);
+	setControlEnabled("auto-lux", hasLux);
+	setControlEnabled("lux-threshold", hasLux);
+
+	const tempStatus = $("temp-mode-status");
+	if (tempStatus && !hasTemp) tempStatus.textContent = "Geen temperatuursensor gevonden";
+	const motionStatus = $("motion-sensor-status");
+	if (motionStatus && !hasMotion) motionStatus.textContent = "Geen sensor gevonden";
 }
 
 function applyTemperatureModeTick() {
@@ -824,6 +879,7 @@ function renderState() {
 
 	updateTempGauge(state.temp);
 	updateMotionSensorUi();
+	updateSensorCapabilityUi();
 	updateManualTimerUI();
 	setText("updated-at", `Laatste update: ${new Date().toLocaleTimeString()}`);
 }
@@ -1039,6 +1095,38 @@ function setConn(ok, text) {
 // ═══════════════════════════════════════════════
 function renderLEDFrame(t) {
 	const colors = Array.from({ length: LED_COUNT }, () => [0, 0, 0]);
+	const nowMs = Date.now();
+
+	if (state.manualTimer.active && state.manualTimer.endAt && state.manualTimer.durationMs > 0) {
+		const remaining = Math.max(0, state.manualTimer.endAt - nowMs);
+		const ratio = Math.max(0, Math.min(1, remaining / state.manualTimer.durationMs));
+		const litCount = Math.max(0, Math.min(LED_COUNT, Math.round(ratio * LED_COUNT)));
+		const countdownColor = ratio > 0.5
+			? [240, 240, 240]
+			: ratio > 0.2
+				? [255, 200, 80]
+				: [255, 70, 70];
+		for (let i = 0; i < litCount; i++) colors[i] = [...countdownColor];
+		lastLedColors = colors.map(pixel => [...pixel]);
+		drawSyncedLedPreviews();
+		return;
+	}
+
+	if (state.manualTimer.doneFlashUntil > nowMs) {
+		const blinkOn = Math.floor(t * 8) % 2 === 0;
+		for (let i = 0; i < LED_COUNT; i++) {
+			if (!blinkOn) {
+				colors[i] = [0, 0, 0];
+				continue;
+			}
+			const m = i % 3;
+			colors[i] = m === 0 ? [255, 40, 40] : (m === 1 ? [40, 180, 255] : [80, 255, 120]);
+		}
+		lastLedColors = colors.map(pixel => [...pixel]);
+		drawSyncedLedPreviews();
+		return;
+	}
+
 	const anyFX  = Object.values(state.effects).some(Boolean);
 	const rawBase = state.mode === "custom"
 		? state.customColor
@@ -1597,7 +1685,7 @@ function renderLessonTimer() {
 	if (lessonTimer.running) {
 		lessonEvents.forEach(event => {
 			const idx = scheduleMinToLed(event.minute);
-			leds[idx] = event.type === "pause" ? "on-green" : "on-base";
+			leds[idx] = event.type === "pause" ? "on-base" : "on-green";
 		});
 
 		if (lessonTimer.phase === "run") {
