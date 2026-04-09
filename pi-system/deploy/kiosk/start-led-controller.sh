@@ -7,7 +7,7 @@ set -u
 # Example:
 #   start-led-controller.sh http://127.0.0.1:3001/
 
-KIOSK_URL="${1:-http://127.0.0.1:3001/}"
+KIOSK_URL="${1:-http://127.0.0.1:3000/}"
 DISPLAY_VAL="${DISPLAY:-:0}"
 XAUTH_VAL="${XAUTHORITY:-$HOME/.Xauthority}"
 

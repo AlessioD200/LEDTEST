@@ -5,7 +5,12 @@ export const defaultState = {
     auto: false,
     brightness: 50,
     color: { r: 255, g: 255, b: 255 },
-    effect: "none"
+    effect: "none",
+    timer: {
+      mode: "off",
+      remainingMs: 0,
+      totalMs: 0
+    }
   },
   device: {
     online: false,
@@ -15,8 +20,27 @@ export const defaultState = {
     telemetry: {
       temperature: null,
       lux: null,
-      uptime: null
+      uptime: null,
+      motion: null
     }
+  },
+  sensors: {
+    available: {
+      ldr: false,
+      bh1750: false,
+      ds18b20: false,
+      sht3x: false,
+      bme280: false,
+      pir: false
+    },
+    pirPin: null
+  },
+  version: {
+    firmware: "rpi-backend",
+    buildId: "rpi-local",
+    otaCount: 0,
+    lastUpdateTs: 0,
+    lastUpdated: []
   },
   scheduler: {
     enabled: false,

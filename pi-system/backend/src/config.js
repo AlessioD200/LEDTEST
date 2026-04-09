@@ -12,9 +12,11 @@ export const config = {
   mqttUrl: process.env.MQTT_URL || "mqtt://127.0.0.1:1883",
   mqttUser: process.env.MQTT_USER || "",
   mqttPassword: process.env.MQTT_PASSWORD || "",
+  updateAuthToken: process.env.UPDATE_AUTH_TOKEN || "Vives_plus",
+  defaultUpdateBaseUrl: process.env.UPDATE_BASE_URL || "https://raw.githubusercontent.com/AlessioD200/LEDTEST/main",
   deviceId: process.env.DEVICE_ID || "esp32-led-1",
   stateFile: path.resolve(__dirname, "..", process.env.STATE_FILE || "./data/state.json"),
   touchDashboardDir: path.resolve(__dirname, "..", "public"),
-  // Optional old browser dashboard. Not used by ESP32 firmware UI.
-  legacyDashboardDir: path.resolve(__dirname, "..", "..", "..", "web")
+  // Primary dashboard used on Pi touchscreen (same UI as ESP/web folder).
+  webDashboardDir: path.resolve(__dirname, "..", "..", "..", "web")
 };

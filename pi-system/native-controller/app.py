@@ -14,7 +14,7 @@ from pathlib import Path
 from tkinter import ttk
 from urllib import error, request
 
-BACKEND_URL = os.environ.get("LED_BACKEND_URL", "http://127.0.0.1:3001")
+BACKEND_URL = os.environ.get("LED_BACKEND_URL", "http://127.0.0.1:3000")
 POLL_MS = 1200
 ANIM_MS = 33
 

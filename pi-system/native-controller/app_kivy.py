@@ -31,7 +31,7 @@ from kivy.uix.switch import Switch
 from kivy.uix.textinput import TextInput
 from kivy.uix.widget import Widget
 
-BACKEND_URL = os.environ.get("LED_BACKEND_URL", "http://127.0.0.1:3001")
+BACKEND_URL = os.environ.get("LED_BACKEND_URL", "http://127.0.0.1:3000")
 UPDATE_REPO_DIR = Path(os.environ.get("LED_UPDATE_REPO_DIR", "/home/ledvives/LEDTEST"))
 UPDATE_BRANCH = os.environ.get("LED_UPDATE_BRANCH")
 REPO_APP_REL = Path("pi-system/native-controller/app_kivy.py")

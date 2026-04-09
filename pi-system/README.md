@@ -63,8 +63,15 @@ Open:
 
 Default URLs now are:
 
-- `/` = touch dashboard from `backend/public/`
-- `/legacy` = optional old browser dashboard from `web/`
+- `/` = primary touchscreen dashboard from `web/` (same UI concept as ESP web)
+- `/touch` = lightweight fallback dashboard from `backend/public/`
+
+ESP32-compatible API behavior on Pi backend:
+
+- `/api/state` returns ESP-style fields (`lux`, `temp`, `mode`, `auto`, `br`, `effects`) plus `desired/device/sensors/scheduler/version`
+- legacy routes are supported: `/mode/:mode`, `/toggle/auto`, `/set_global?br=..`, `/lightshow/:effect/toggle`
+- `/api/sensor` is available for lux/temp reads
+- OTA-style routes are available: `/api/update` and `/api/update/status`
 
 Important:
 
@@ -114,8 +121,7 @@ npm start
 Open dashboard:
 
 - `http://<pi-ip>:3000`
-- `http://<pi-ip>:3000/touch` same touch UI (explicit route)
-- `http://<pi-ip>:3000/legacy` optional legacy browser dashboard
+- `http://<pi-ip>:3000/touch` fallback touch UI (explicit route)
 
 ## 5) systemd auto-start (production)
 

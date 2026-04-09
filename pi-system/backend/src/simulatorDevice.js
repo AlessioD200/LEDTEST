@@ -16,6 +16,19 @@ export class SimulatorDevice {
 
   start() {
     this.onOnline({ online: true, simulated: true });
+    this.stateStore.patch({
+      sensors: {
+        available: {
+          ldr: true,
+          bh1750: false,
+          ds18b20: true,
+          sht3x: false,
+          bme280: false,
+          pir: true
+        },
+        pirPin: 27
+      }
+    });
     this.publishCurrentState();
     this.tickHandle = setInterval(() => this.tick(), 1000);
   }
@@ -30,6 +43,7 @@ export class SimulatorDevice {
     const telemetry = {
       temperature: Number((22 + Math.sin(elapsed / 20) * 2.5).toFixed(1)),
       lux: Math.round(280 + Math.sin(elapsed / 8) * 180),
+      motion: Math.sin(elapsed / 5) > 0.55,
       uptime: Math.round(elapsed),
       simulated: true
     };
