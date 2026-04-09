@@ -342,7 +342,7 @@ def apply_command_payload(payload):
         lightshow_start_times.clear()
         if effect in ("wave", "pulse", "strobe", "rainbow"):
             lightshow_active[effect] = True
-            lightshow_start_times[effect] = int(time.time() * 1000)
+            lightshow_start_times[effect] = time.ticks_ms()
 
 
 # --- 5. MAIN LOOP ---
@@ -474,8 +474,8 @@ while True:
             elif route_path.startswith("/lightshow/") and route_path.endswith("/toggle"):
                 try:
                     effect = route_path.split("/lightshow/")[1].split("/toggle")[0]
-                    now_ms = int(time.time() * 1000)
-                    if now_ms - lightshow_last_trigger > 100:
+                    now_ms = time.ticks_ms()
+                    if time.ticks_diff(now_ms, lightshow_last_trigger) > 100:
                         if effect in lightshow_active:
                             del lightshow_active[effect]
                             lightshow_start_times.pop(effect, None)
@@ -509,7 +509,7 @@ while True:
 
     # 5c. LED RENDERING
     try:
-        now_ms = int(time.time() * 1000)
+        now_ms = time.ticks_ms()
         active_effects = [e for e in lightshow_active if e in lightshow_start_times]
 
         if active_effects:
@@ -517,7 +517,7 @@ while True:
                 strip[i] = (0, 0, 0, 0)
 
             for effect in active_effects:
-                ls_el = now_ms - lightshow_start_times[effect]
+                ls_el = time.ticks_diff(now_ms, lightshow_start_times[effect])
 
                 if effect == "wave":
                     wc = (ls_el / 50.0) % (NUM_LEDS + 80)

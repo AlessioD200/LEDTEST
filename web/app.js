@@ -94,6 +94,7 @@ let chartCtx = null;
 // ─── Active modal ─────────────────────────────
 let activeModal = null;
 const ALLOW_SIMULATION_FALLBACK = false;
+const DEFAULT_UPDATE_BASE_URL = "https://raw.githubusercontent.com/AlessioD200/LEDTEST/main";
 let backendSync = {
 	enabled: false,
 	ws: null,
@@ -104,6 +105,13 @@ let backendSync = {
 		? window.location.origin
 		: `${window.location.protocol}//${window.location.hostname || "127.0.0.1"}:3000`,
 	lastState: null
+};
+
+let clockTimer = {
+	enabled: false,
+	on: "07:00",
+	off: "22:00",
+	lastPower: null
 };
 
 // ─── Helper ───────────────────────────────────
@@ -193,6 +201,13 @@ async function runEspUpdateFromUi() {
 		}
 	} catch (err) {
 		out.textContent = `Update fout: ${err?.message || err}`;
+	}
+}
+
+function initUpdateDefaults() {
+	const baseEl = $("update-baseurl");
+	if (baseEl && !(baseEl.value || "").trim()) {
+		baseEl.value = DEFAULT_UPDATE_BASE_URL;
 	}
 }
 
@@ -749,8 +764,50 @@ function startManualTimer() {
 	if (state.mode === "off") {
 		state.mode = "white";
 	}
+	clockTimer.lastPower = null;
 	pushDesiredState();
 	updateManualTimerUI();
+}
+
+function updateClockTimerSettingsFromUi() {
+	const enabledEl = $("timer-enabled");
+	const onEl = $("timer-on");
+	const offEl = $("timer-off");
+	if (!enabledEl || !onEl || !offEl) return;
+	clockTimer.enabled = !!enabledEl.checked;
+	clockTimer.on = isValidHhmm(onEl.value) ? onEl.value : "07:00";
+	clockTimer.off = isValidHhmm(offEl.value) ? offEl.value : "22:00";
+}
+
+function applyClockTimerTick() {
+	if (!clockTimer.enabled) {
+		clockTimer.lastPower = null;
+		return;
+	}
+
+	const onMin = hhmmToMin(clockTimer.on);
+	const offMin = hhmmToMin(clockTimer.off);
+	const now = new Date();
+	const nowMin = now.getHours() * 60 + now.getMinutes();
+
+	let shouldOn = false;
+	if (onMin <= offMin) {
+		shouldOn = nowMin >= onMin && nowMin < offMin;
+	} else {
+		shouldOn = nowMin >= onMin || nowMin < offMin;
+	}
+
+	if (clockTimer.lastPower === shouldOn) return;
+	clockTimer.lastPower = shouldOn;
+
+	if (shouldOn) {
+		if (state.mode === "off") state.mode = "white";
+	} else {
+		state.mode = "off";
+		state.effects = { wave: false, pulse: false, strobe: false, rainbow: false };
+	}
+	pushDesiredState();
+	renderState();
 }
 
 function setConn(ok, text) {
@@ -1485,6 +1542,33 @@ if (timerStopBtn) {
 	timerStopBtn.addEventListener("click", stopManualTimer);
 }
 
+const timerEnabledEl = $("timer-enabled");
+if (timerEnabledEl) {
+	timerEnabledEl.addEventListener("change", () => {
+		updateClockTimerSettingsFromUi();
+		clockTimer.lastPower = null;
+		applyClockTimerTick();
+	});
+}
+
+const timerOnEl = $("timer-on");
+if (timerOnEl) {
+	timerOnEl.addEventListener("change", () => {
+		updateClockTimerSettingsFromUi();
+		clockTimer.lastPower = null;
+		applyClockTimerTick();
+	});
+}
+
+const timerOffEl = $("timer-off");
+if (timerOffEl) {
+	timerOffEl.addEventListener("change", () => {
+		updateClockTimerSettingsFromUi();
+		clockTimer.lastPower = null;
+		applyClockTimerTick();
+	});
+}
+
 const lessonTimerStartBtn = $("lesson-timer-start");
 if (lessonTimerStartBtn) {
 	lessonTimerStartBtn.addEventListener("click", startLessonTimerSimulation);
@@ -1549,6 +1633,8 @@ document.querySelectorAll(".preset-btn[data-minutes]").forEach(btn => {
 //  SIMULATION TICK
 // ═══════════════════════════════════════════════
 function tick() {
+	applyClockTimerTick();
+
 	if (backendSync.enabled) {
 		const t = Date.now() / 1000;
 		if (state.manualTimer.active && state.manualTimer.endAt) {
@@ -1605,6 +1691,8 @@ function tick() {
 buildModes();
 buildEffects();
 buildLessonUI();
+initUpdateDefaults();
+updateClockTimerSettingsFromUi();
 initNav();
 initChart();
 initLedCanvas();
