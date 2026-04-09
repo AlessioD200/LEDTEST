@@ -54,7 +54,11 @@ let state = {
 	manualTimer: {
 		active: false,
 		endAt: null,
-		durationMs: 0
+		durationMs: 0,
+		visualPhase: null,
+		doneFlashUntil: 0,
+		doneFlashStarted: false,
+		doneFlashOffSent: false
 	}
 };
 
@@ -124,6 +128,7 @@ let clockTimer = {
 
 let updateStatusPollTimer = null;
 let customColorPushTimer = null;
+let pendingWebReload = false;
 
 // ─── Helper ───────────────────────────────────
 const $ = id => document.getElementById(id);
@@ -195,6 +200,18 @@ async function fetchUpdateStatus() {
 		const reboot = data.rebootPending ? " | Herstart gepland" : "";
 		out.textContent = `${data.ok ? "OK" : "Fout"}: ${msg}${updated}${progress}${reboot}`;
 		updateVersionInfoUi(data.version);
+
+		const updatedFiles = Array.isArray(data.updated) ? data.updated : [];
+		const webChanged = updatedFiles.some(name => ["index.html", "styles.css", "app.js"].includes(String(name)));
+		if (!pendingWebReload && data.ok && !data.inProgress && !data.rebootPending && webChanged) {
+			pendingWebReload = true;
+			out.textContent += " | Web bijgewerkt, pagina herlaadt...";
+			setTimeout(() => {
+				const u = new URL(window.location.href);
+				u.searchParams.set("v", String(Date.now()));
+				window.location.href = u.toString();
+			}, 900);
+		}
 		return data;
 	} catch (err) {
 		out.textContent = `Status fout: ${err?.message || err}`;
@@ -232,12 +249,18 @@ async function runEspUpdateFromUi() {
 	}
 
 	out.textContent = "Update gestart...";
+	pendingWebReload = false;
 	try {
 		const data = await apiRequest("/api/update", {
 			method: "POST",
 			body: JSON.stringify({
 				token,
 				baseUrl,
+				files: [
+					{ local: "index.html", remote: "web/index.html" },
+					{ local: "styles.css", remote: "web/styles.css" },
+					{ local: "app.js", remote: "web/app.js" }
+				],
 				reboot: !!rebootEl.checked
 			})
 		});
@@ -357,7 +380,7 @@ function updateMotionSensorUi() {
 }
 
 function applyTemperatureModeTick() {
-	if (state.manualTimer.active || lessonTimer.running) return;
+	if (state.manualTimer.active || state.manualTimer.doneFlashUntil > Date.now() || lessonTimer.running) return;
 
 	if (!state.tempMode.enabled) {
 		state.tempMode.lastBand = null;
@@ -832,6 +855,12 @@ function stopManualTimer(timerDone = false) {
 	state.manualTimer.active = false;
 	state.manualTimer.endAt = null;
 	state.manualTimer.durationMs = 0;
+	state.manualTimer.visualPhase = null;
+	if (!timerDone) {
+		state.manualTimer.doneFlashUntil = 0;
+		state.manualTimer.doneFlashStarted = false;
+		state.manualTimer.doneFlashOffSent = false;
+	}
 
 	if (timerDone) {
 		const statusEl = $("manual-timer-status");
@@ -870,13 +899,71 @@ function startManualTimer() {
 	state.manualTimer.active = true;
 	state.manualTimer.durationMs = durationMs;
 	state.manualTimer.endAt = Date.now() + durationMs;
+	state.manualTimer.visualPhase = null;
+	state.manualTimer.doneFlashUntil = 0;
+	state.manualTimer.doneFlashStarted = false;
+	state.manualTimer.doneFlashOffSent = false;
 	if (state.mode === "off") {
 		state.mode = "white";
 	}
+	state.effects = { wave: true, pulse: false, strobe: false, rainbow: false };
 	state.tempMode.lastBand = null;
 	clockTimer.lastPower = null;
 	pushDesiredState();
 	updateManualTimerUI();
+}
+
+function applyManualTimerTick() {
+	const now = Date.now();
+
+	if (state.manualTimer.active && state.manualTimer.endAt) {
+		const remaining = state.manualTimer.endAt - now;
+		if (remaining <= 0) {
+			state.manualTimer.doneFlashUntil = now + 3200;
+			state.manualTimer.doneFlashStarted = false;
+			state.manualTimer.doneFlashOffSent = false;
+			stopManualTimer(true);
+			return;
+		}
+
+		let phase = "normal";
+		if (remaining <= 10000) phase = "urgent";
+		else if (remaining <= 60000) phase = "warning";
+
+		if (state.manualTimer.visualPhase !== phase) {
+			state.manualTimer.visualPhase = phase;
+			if (state.mode === "off") state.mode = "white";
+			if (phase === "urgent") {
+				state.effects = { wave: false, pulse: false, strobe: true, rainbow: false };
+			} else if (phase === "warning") {
+				state.effects = { wave: false, pulse: true, strobe: false, rainbow: false };
+			} else {
+				state.effects = { wave: true, pulse: false, strobe: false, rainbow: false };
+			}
+			pushDesiredState();
+		}
+		return;
+	}
+
+	if (state.manualTimer.doneFlashUntil > now) {
+		if (!state.manualTimer.doneFlashStarted) {
+			state.manualTimer.doneFlashStarted = true;
+			state.mode = "white";
+			state.effects = { wave: false, pulse: false, strobe: false, rainbow: true };
+			pushDesiredState();
+		}
+		return;
+	}
+
+	if (state.manualTimer.doneFlashUntil > 0 && !state.manualTimer.doneFlashOffSent) {
+		state.manualTimer.doneFlashOffSent = true;
+		state.manualTimer.doneFlashUntil = 0;
+		state.mode = "off";
+		state.effects = { wave: false, pulse: false, strobe: false, rainbow: false };
+		clockTimer.lastPower = false;
+		state.tempMode.lastBand = null;
+		pushDesiredState();
+	}
 }
 
 function updateClockTimerSettingsFromUi() {
@@ -907,7 +994,7 @@ function updateTempModeSettingsFromUi() {
 }
 
 function applyClockTimerTick() {
-	if (state.manualTimer.active || lessonTimer.running) return;
+	if (state.manualTimer.active || state.manualTimer.doneFlashUntil > Date.now() || lessonTimer.running) return;
 
 	if (!clockTimer.enabled) {
 		clockTimer.lastPower = null;
@@ -1508,22 +1595,21 @@ function renderLessonTimer() {
 
 	const leds = Array.from({ length: LESSON_LED_COUNT }, () => "");
 	if (lessonTimer.running) {
-		const nextEvent = lessonEvents[lessonTimer.nextEventIndex] || null;
-		if (nextEvent && lessonTimer.phase !== "done") {
-			leds[scheduleMinToLed(nextEvent.minute)] = "on-green";
-		}
+		lessonEvents.forEach(event => {
+			const idx = scheduleMinToLed(event.minute);
+			leds[idx] = event.type === "pause" ? "on-green" : "on-base";
+		});
 
 		if (lessonTimer.phase === "run") {
 			const cursor = scheduleMinToLed(lessonTimer.currentMinute);
-			for (let i = 0; i <= cursor; i++) leds[i] = "on-base";
 			leds[cursor] = "on-white";
 		}
 
 		if (lessonTimer.phase === "countdown") {
 			const elapsed = Date.now() - lessonTimer.phaseStartedAt;
 			const ratio = Math.max(0, Math.min(1, elapsed / Math.max(1, lessonTimer.phaseDurationMs)));
-			const litCount = Math.max(0, Math.round((1 - ratio) * LESSON_LED_COUNT));
-			for (let i = 0; i < litCount; i++) leds[i] = "on-white";
+			const pos = Math.max(0, Math.min(LESSON_LED_COUNT - 1, Math.round((1 - ratio) * (LESSON_LED_COUNT - 1))));
+			leds[pos] = "on-red";
 		}
 
 		if (lessonTimer.phase === "blink") {
@@ -1785,16 +1871,7 @@ document.querySelectorAll(".preset-btn[data-minutes]").forEach(btn => {
 function tick() {
 	if (backendSync.enabled) {
 		const t = Date.now() / 1000;
-		if (state.manualTimer.active && state.manualTimer.endAt) {
-			if (Date.now() >= state.manualTimer.endAt) {
-				state.mode = "off";
-				state.effects = { wave: false, pulse: false, strobe: false, rainbow: false };
-				clockTimer.lastPower = false;
-				state.tempMode.lastBand = null;
-				pushDesiredState();
-				stopManualTimer(true);
-			}
-		}
+		applyManualTimerTick();
 		updateLessonTimerTick();
 		applyClockTimerTick();
 		applyTemperatureModeTick();
@@ -1817,13 +1894,7 @@ function tick() {
 		state.br = Math.round(Math.max(1, Math.min(100, state.lux / 10)));
 	}
 
-	if (state.manualTimer.active && state.manualTimer.endAt) {
-		if (Date.now() >= state.manualTimer.endAt) {
-				state.mode = "off";
-			state.effects = { wave: false, pulse: false, strobe: false, rainbow: false };
-			stopManualTimer(true);
-		}
-	}
+	applyManualTimerTick();
 
 	updateLessonTimerTick();
 

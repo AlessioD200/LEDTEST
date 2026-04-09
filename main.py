@@ -11,6 +11,11 @@ except:
     urequests = None
 
 try:
+    import ussl
+except:
+    ussl = None
+
+try:
     import machine
 except:
     machine = None
@@ -229,6 +234,197 @@ def _safe_remove(path):
         pass
 
 
+def parse_url(url):
+    scheme = "http"
+    rest = str(url)
+    if rest.startswith("https://"):
+        scheme = "https"
+        rest = rest[8:]
+    elif rest.startswith("http://"):
+        rest = rest[7:]
+
+    slash_idx = rest.find("/")
+    if slash_idx >= 0:
+        host_port = rest[:slash_idx]
+        path = rest[slash_idx:]
+    else:
+        host_port = rest
+        path = "/"
+
+    if ":" in host_port:
+        host, port_str = host_port.split(":", 1)
+        try:
+            port = int(port_str)
+        except:
+            port = 443 if scheme == "https" else 80
+    else:
+        host = host_port
+        port = 443 if scheme == "https" else 80
+
+    if not path:
+        path = "/"
+    return scheme, host, port, path
+
+
+def sock_read(sock, n=512):
+    if hasattr(sock, "read"):
+        return sock.read(n)
+    return sock.recv(n)
+
+
+def sock_write(sock, data):
+    if hasattr(sock, "write"):
+        return sock.write(data)
+    return sock.send(data)
+
+
+def sock_readline(sock):
+    line = b""
+    while True:
+        ch = sock_read(sock, 1)
+        if not ch:
+            break
+        line += ch
+        if ch == b"\n":
+            break
+        if len(line) > 4096:
+            break
+    return line
+
+
+def download_to_file_stream(url, target_path, redirect_depth=0):
+    if redirect_depth > 3:
+        raise Exception("Too many redirects")
+
+    scheme, host, port, path = parse_url(url)
+    if scheme == "https" and ussl is None:
+        raise Exception("HTTPS requested but ussl not available")
+
+    tmp_path = target_path + ".tmp"
+    _safe_remove(tmp_path)
+    sock = None
+    ssock = None
+    has_default_timeout = hasattr(socket, "setdefaulttimeout")
+
+    try:
+        if has_default_timeout:
+            try:
+                socket.setdefaulttimeout(20)
+            except:
+                pass
+
+        ai = socket.getaddrinfo(host, port, 0, socket.SOCK_STREAM)[0][-1]
+        sock = socket.socket()
+        sock.connect(ai)
+        ssock = sock
+        if scheme == "https":
+            try:
+                ssock = ussl.wrap_socket(sock, server_hostname=host)
+            except:
+                ssock = ussl.wrap_socket(sock)
+
+        req = "GET {} HTTP/1.1\r\nHost: {}\r\nConnection: close\r\nUser-Agent: esp32-ota\r\n\r\n".format(path, host)
+        sock_write(ssock, req.encode())
+
+        status_line = sock_readline(ssock)
+        if not status_line:
+            raise Exception("No HTTP response")
+
+        try:
+            status_code = int(status_line.split(b" ")[1])
+        except:
+            raise Exception("Invalid HTTP status line")
+
+        headers = {}
+        while True:
+            line = sock_readline(ssock)
+            if not line or line in (b"\r\n", b"\n"):
+                break
+            if b":" in line:
+                k, v = line.split(b":", 1)
+                headers[k.strip().lower()] = v.strip()
+
+        if status_code in (301, 302, 303, 307, 308):
+            loc = headers.get(b"location", b"")
+            new_url = loc.decode() if isinstance(loc, bytes) else str(loc)
+            if not new_url:
+                raise Exception("Redirect without Location")
+            if new_url.startswith("/"):
+                new_url = "{}://{}{}".format(scheme, host, new_url)
+            return download_to_file_stream(new_url, target_path, redirect_depth + 1)
+
+        if status_code != 200:
+            raise Exception("HTTP {} for {}".format(status_code, url))
+
+        transfer = headers.get(b"transfer-encoding", b"").lower()
+        clen_raw = headers.get(b"content-length", b"0")
+        try:
+            content_len = int(clen_raw)
+        except:
+            content_len = 0
+
+        with open(tmp_path, "wb") as out:
+            if transfer == b"chunked":
+                while True:
+                    sz_line = sock_readline(ssock)
+                    if not sz_line:
+                        break
+                    sz_str = sz_line.strip().split(b";", 1)[0]
+                    chunk_size = int(sz_str, 16) if sz_str else 0
+                    if chunk_size <= 0:
+                        # consume trailing CRLF
+                        sock_readline(ssock)
+                        break
+
+                    remaining = chunk_size
+                    while remaining > 0:
+                        chunk = sock_read(ssock, min(512, remaining))
+                        if not chunk:
+                            raise Exception("Connection closed during chunk")
+                        out.write(chunk)
+                        remaining -= len(chunk)
+                    # consume CRLF after each chunk
+                    sock_readline(ssock)
+                    gc.collect()
+            elif content_len > 0:
+                remaining = content_len
+                while remaining > 0:
+                    chunk = sock_read(ssock, min(512, remaining))
+                    if not chunk:
+                        break
+                    out.write(chunk)
+                    remaining -= len(chunk)
+                    gc.collect()
+            else:
+                while True:
+                    chunk = sock_read(ssock, 512)
+                    if not chunk:
+                        break
+                    out.write(chunk)
+                    gc.collect()
+
+        _safe_remove(target_path)
+        os.rename(tmp_path, target_path)
+        gc.collect()
+    finally:
+        if has_default_timeout:
+            try:
+                socket.setdefaulttimeout(None)
+            except:
+                pass
+        if ssock is not None:
+            try:
+                ssock.close()
+            except:
+                pass
+        if sock is not None and sock is not ssock:
+            try:
+                sock.close()
+            except:
+                pass
+        _safe_remove(tmp_path)
+
+
 def fnv1a_update(hash_val, data):
     for b in data:
         hash_val ^= b
@@ -312,7 +508,8 @@ def save_version_info():
 
 def download_to_file(url, target_path):
     if urequests is None:
-        raise Exception("urequests not available on this firmware")
+        # Fallback to raw socket streaming when urequests is missing.
+        return download_to_file_stream(url, target_path)
 
     resp = None
     tmp_path = target_path + ".tmp"
@@ -341,7 +538,14 @@ def download_to_file(url, target_path):
                     out.write(chunk)
                     gc.collect()
             else:
-                out.write(resp.content)
+                # Some firmware builds expose only .content, which can be memory-heavy.
+                # Fall back to socket streaming to avoid heap crashes on larger web assets.
+                try:
+                    out.close()
+                except:
+                    pass
+                _safe_remove(tmp_path)
+                return download_to_file_stream(url, target_path)
 
         _safe_remove(target_path)
         os.rename(tmp_path, target_path)
