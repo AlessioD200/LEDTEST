@@ -326,6 +326,8 @@ function updateMotionSensorUi() {
 }
 
 function applyTemperatureModeTick() {
+	if (state.manualTimer.active || lessonTimer.running) return;
+
 	if (!state.tempMode.enabled) {
 		state.tempMode.lastBand = null;
 		return;
@@ -874,6 +876,8 @@ function updateTempModeSettingsFromUi() {
 }
 
 function applyClockTimerTick() {
+	if (state.manualTimer.active || lessonTimer.running) return;
+
 	if (!clockTimer.enabled) {
 		clockTimer.lastPower = null;
 		return;
@@ -1336,6 +1340,7 @@ function resetLessonTimerState() {
 	lessonTimer.phaseDurationMs = 0;
 	lessonTimer.countdownEndsAt = 0;
 	lessonTimer.blinkUntil = 0;
+	lessonTimer.lastCmdKey = "";
 }
 
 function buildLessonUI() {
@@ -1405,14 +1410,13 @@ function startLessonTimerSimulation() {
 	}
 	lessonTimer.running = true;
 	lessonTimer.phase = "run";
+	lessonTimer.lastCmdKey = "";
 	lessonTimer.currentMinute = hhmmToMin(`${pad2(new Date().getHours())}:${pad2(new Date().getMinutes())}`);
 	lessonTimer.nextEventIndex = 0;
 	lessonTimer.phaseStartedAt = Date.now();
-	if (state.mode === "off") {
-		state.mode = "white";
-		state.effects = { wave: false, pulse: false, strobe: false, rainbow: false };
-		pushDesiredState();
-	}
+	state.mode = "white";
+	state.effects = { wave: true, pulse: false, strobe: false, rainbow: false };
+	pushDesiredState();
 	renderLessonTimer();
 	pushSchedulerConfig();
 	pushSchedulerRun(true);
@@ -1532,6 +1536,7 @@ function updateLessonTimerTick() {
 	} else if (inLesson) {
 		phase = "run";
 		desiredMode = "white";
+		desiredEffects = { wave: true, pulse: false, strobe: false, rainbow: false };
 	}
 
 	const cmdKey = `${phase}|${desiredMode}|${JSON.stringify(desiredEffects)}`;
@@ -1747,20 +1752,21 @@ document.querySelectorAll(".preset-btn[data-minutes]").forEach(btn => {
 //  SIMULATION TICK
 // ═══════════════════════════════════════════════
 function tick() {
-	applyClockTimerTick();
-	applyTemperatureModeTick();
-
 	if (backendSync.enabled) {
 		const t = Date.now() / 1000;
 		if (state.manualTimer.active && state.manualTimer.endAt) {
 			if (Date.now() >= state.manualTimer.endAt) {
 				state.mode = "off";
 				state.effects = { wave: false, pulse: false, strobe: false, rainbow: false };
+				clockTimer.lastPower = false;
+				state.tempMode.lastBand = null;
 				pushDesiredState();
 				stopManualTimer(true);
 			}
 		}
 		updateLessonTimerTick();
+		applyClockTimerTick();
+		applyTemperatureModeTick();
 		renderState();
 		renderLEDFrame(t);
 		updateModal();
