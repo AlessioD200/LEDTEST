@@ -1,5 +1,9 @@
 from machine import Pin, SPI, ADC
-import apa102, socket, time, random, onewire, ds18x20, json, os
+import apa102, socket, time, random, onewire, ds18x20, json, os, gc
+try:
+    from machine import I2C
+except:
+    I2C = None
 
 try:
     import urequests
@@ -30,6 +34,29 @@ if not temp_roms:
 else:
     print("Temperature sensor found:", temp_roms)
 
+# Optional I2C sensor autodetect (BH1750/BME280/SHT3x)
+i2c = None
+i2c_addrs = []
+if I2C is not None:
+    try:
+        # Typical ESP32 pins for I2C
+        i2c = I2C(0, scl=Pin(22), sda=Pin(21), freq=100000)
+        i2c_addrs = i2c.scan()
+    except:
+        i2c = None
+        i2c_addrs = []
+
+# Optional PIR autodetect candidates (best effort)
+PIR_CANDIDATE_PINS = [27, 26, 25, 33, 32, 14, 13]
+pir_candidates = []
+for _pin in PIR_CANDIDATE_PINS:
+    try:
+        pir_candidates.append((_pin, Pin(_pin, Pin.IN)))
+    except:
+        pass
+pir_selected_pin = None
+pir_high_counter = 0
+
 # --- 2. STATE ---
 mode = "white"
 auto_light = False
@@ -40,10 +67,15 @@ temp_val = 20.0
 sensor_buffer = [2000.0] * 10
 global_br = 0.5
 custom_color = (255, 255, 255)
+motion_detected = None
+lux_source = "ldr"
+temp_source = "none"
 lightshow_active = {}
 lightshow_start_times = {}
 lightshow_last_trigger = 0
 temp_read_counter = 0
+
+bh1750_lux = None
 
 scheduler_config = {
     "enabled": False,
@@ -71,6 +103,100 @@ update_last_result = {
 update_job = None
 update_running = False
 update_reboot_at_ms = None
+
+sensor_registry = {
+    "ldr": True,
+    "ds18b20": bool(temp_roms),
+    "bh1750": (0x23 in i2c_addrs) or (0x5C in i2c_addrs),
+    "bme280": (0x76 in i2c_addrs) or (0x77 in i2c_addrs),
+    "sht3x": (0x44 in i2c_addrs) or (0x45 in i2c_addrs),
+    "pir": False,
+}
+
+
+def detect_motion_sensor():
+    global pir_selected_pin, pir_high_counter
+    if pir_selected_pin is not None:
+        return
+    # Best-effort auto detect: if one candidate pin reads HIGH repeatedly, assume PIR is connected there.
+    for pin_no, pin_obj in pir_candidates:
+        try:
+            if pin_obj.value():
+                pir_high_counter += 1
+                if pir_high_counter >= 3:
+                    pir_selected_pin = pin_no
+                    sensor_registry["pir"] = True
+                    break
+            else:
+                pir_high_counter = 0
+        except:
+            pass
+
+
+def read_motion_value():
+    if pir_selected_pin is None:
+        return None
+    for pin_no, pin_obj in pir_candidates:
+        if pin_no == pir_selected_pin:
+            try:
+                return bool(pin_obj.value())
+            except:
+                return None
+    return None
+
+
+def read_bh1750_lux():
+    if i2c is None:
+        return None
+    addr = 0x23 if 0x23 in i2c_addrs else (0x5C if 0x5C in i2c_addrs else None)
+    if addr is None:
+        return None
+    try:
+        # Continuously H-Resolution Mode
+        i2c.writeto(addr, b"\x10")
+        time.sleep_ms(180)
+        data = i2c.readfrom(addr, 2)
+        raw = (data[0] << 8) | data[1]
+        lux = raw / 1.2
+        return max(0.0, lux)
+    except:
+        return None
+
+
+def read_sht3x_temp():
+    if i2c is None:
+        return None
+    addr = 0x44 if 0x44 in i2c_addrs else (0x45 if 0x45 in i2c_addrs else None)
+    if addr is None:
+        return None
+    try:
+        i2c.writeto(addr, b"\x24\x00")
+        time.sleep_ms(20)
+        data = i2c.readfrom(addr, 6)
+        raw_t = (data[0] << 8) | data[1]
+        temp_c = -45 + (175 * raw_t / 65535.0)
+        return temp_c
+    except:
+        return None
+
+
+def read_bme280_temp():
+    # Lightweight fallback detector only (real compensation omitted to keep memory low).
+    # Returns None if not usable.
+    if i2c is None:
+        return None
+    addr = 0x76 if 0x76 in i2c_addrs else (0x77 if 0x77 in i2c_addrs else None)
+    if addr is None:
+        return None
+    try:
+        # Simple check: read chip id register
+        chip_id = i2c.readfrom_mem(addr, 0xD0, 1)[0]
+        if chip_id not in (0x58, 0x60, 0x61):
+            return None
+        # Without full compensation this value is not reliable; keep as unavailable.
+        return None
+    except:
+        return None
 
 
 def clamp_int(value, low, high):
@@ -102,6 +228,7 @@ def download_to_file(url, target_path):
     has_default_timeout = hasattr(socket, "setdefaulttimeout")
 
     try:
+        gc.collect()
         if has_default_timeout:
             try:
                 socket.setdefaulttimeout(15)
@@ -120,11 +247,13 @@ def download_to_file(url, target_path):
                     if not chunk:
                         break
                     out.write(chunk)
+                    gc.collect()
             else:
                 out.write(resp.content)
 
         _safe_remove(target_path)
         os.rename(tmp_path, target_path)
+        gc.collect()
     finally:
         if has_default_timeout:
             try:
@@ -154,9 +283,24 @@ def perform_github_update(base_url=None, files=None):
         remote_path = item.get("remote") if isinstance(item, dict) else None
         if not local_path or not remote_path:
             continue
-        url = base.rstrip("/") + "/" + str(remote_path).lstrip("/")
-        download_to_file(url, str(local_path))
-        updated.append(str(local_path))
+        remote_name = str(remote_path).lstrip("/")
+        if "/api/ota" in base and remote_name.startswith("web/"):
+            remote_name = remote_name[4:]
+        url = base.rstrip("/") + "/" + remote_name
+        try:
+            download_to_file(url, str(local_path))
+            updated.append(str(local_path))
+        except Exception as e:
+            emsg = str(e)
+            if "MBEDTLS_ERR_RSA_PUBLIC_FAILED" in emsg or "MBEDTLS_ERR_MPI_ALLOC_FAILED" in emsg:
+                raise Exception(
+                    "TLS memory error on ESP32 during GitHub update. "
+                    "Use a local HTTP mirror as baseUrl (for example http://<host-ip>:8000/ota). "
+                    "Failing file: {}".format(local_path)
+                )
+            raise
+        finally:
+            gc.collect()
 
     update_last_result = {
         "ok": True,
@@ -348,7 +492,14 @@ def build_state_payload():
             "telemetry": {
                 "lux": perc_val,
                 "temperature": round(temp_val, 1),
+                "motion": motion_detected,
+                "luxSource": lux_source,
+                "tempSource": temp_source,
             },
+        },
+        "sensors": {
+            "available": sensor_registry,
+            "pirPin": pir_selected_pin,
         },
         "scheduler": scheduler_config,
     }
@@ -411,12 +562,29 @@ while True:
 
     # 5a. SENSORS
     try:
+        detect_motion_sensor()
+
         val_raw = ldr.read()
         sensor_buffer.append(val_raw)
         sensor_buffer.pop(0)
         smooth_val = sum(sensor_buffer) / len(sensor_buffer)
         perc_val = int(((4095 - smooth_val) / 4095) * 100)
         perc_val = max(0, min(100, perc_val))
+
+        # Optional digital motion read
+        motion_detected = read_motion_value()
+
+        # Optional BH1750 lux override (read less often)
+        if temp_read_counter % 20 == 0:
+            bh = read_bh1750_lux()
+            if bh is not None:
+                bh1750_lux = bh
+        if bh1750_lux is not None:
+            # Map lux to 0..100 scale where darker => lower value
+            perc_val = int(max(0, min(100, bh1750_lux / 10.0)))
+            lux_source = "bh1750"
+        else:
+            lux_source = "ldr"
 
         if auto_light:
             final_br = max(0.01, min(1.0, perc_val / 100.0))
@@ -426,6 +594,7 @@ while True:
         temp_read_counter += 1
         if temp_read_counter >= 75:
             temp_read_counter = 0
+            temp_source = "none"
             if temp_roms:
                 try:
                     ds.convert_temp()
@@ -433,9 +602,20 @@ while True:
                     for rom in temp_roms:
                         temp_val = ds.read_temp(rom)
                         temp_val = max(-40, min(125, temp_val))
+                        temp_source = "ds18b20"
                         break
                 except:
                     pass
+            if temp_source == "none":
+                t_sht = read_sht3x_temp()
+                if t_sht is not None:
+                    temp_val = max(-40, min(125, t_sht))
+                    temp_source = "sht3x"
+            if temp_source == "none":
+                t_bme = read_bme280_temp()
+                if t_bme is not None:
+                    temp_val = max(-40, min(125, t_bme))
+                    temp_source = "bme280"
     except:
         pass
 

@@ -58,6 +58,27 @@ export function createServer({ config, stateStore, mqttService, scheduler }) {
     res.json(next);
   });
 
+  app.get("/api/ota/:name", (req, res) => {
+    const fileName = String(req.params.name || "");
+    const map = {
+      "index.html": path.join(config.legacyDashboardDir, "index.html"),
+      "styles.css": path.join(config.legacyDashboardDir, "styles.css"),
+      "app.js": path.join(config.legacyDashboardDir, "app.js")
+    };
+
+    const target = map[fileName];
+    if (!target || !fs.existsSync(target)) {
+      res.status(404).json({ ok: false, error: "File not found" });
+      return;
+    }
+
+    if (fileName.endsWith(".html")) res.type("text/html; charset=utf-8");
+    else if (fileName.endsWith(".css")) res.type("text/css; charset=utf-8");
+    else if (fileName.endsWith(".js")) res.type("application/javascript; charset=utf-8");
+
+    res.sendFile(target);
+  });
+
   app.use("/touch", express.static(config.touchDashboardDir));
   app.get("/touch", (_req, res) => {
     res.sendFile(path.join(config.touchDashboardDir, "index.html"));

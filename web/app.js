@@ -370,7 +370,7 @@ async function pollBackendState() {
 		const snapshot = await apiRequest("/api/state");
 		applyBackendState(snapshot);
 	} catch {
-		setConn(false, "Geen data van backend");
+		setConn(false, "Geen data van ESP32");
 	}
 }
 
@@ -382,7 +382,7 @@ async function pushDesiredState() {
 			body: JSON.stringify(getDesiredPayload())
 		});
 	} catch {
-		setConn(false, "Backend fout");
+		setConn(false, "ESP32 API fout");
 	}
 }
 
@@ -451,7 +451,7 @@ async function initBackendSync() {
 		}
 	} catch {
 		backendSync.enabled = false;
-		setConn(false, "Backend niet bereikbaar");
+		setConn(false, "ESP32 niet bereikbaar");
 		if (!backendSync.reconnectTimer) {
 			backendSync.reconnectTimer = setInterval(() => {
 				if (!backendSync.enabled) initBackendSync();
