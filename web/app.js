@@ -114,6 +114,8 @@ let clockTimer = {
 	lastPower: null
 };
 
+let updateStatusPollTimer = null;
+
 // ─── Helper ───────────────────────────────────
 const $ = id => document.getElementById(id);
 function setText(id, val) { const el = $(id); if (el) el.textContent = val; }
@@ -149,16 +151,30 @@ async function fetchUpdateStatus() {
 		const data = await apiRequest("/api/update/status");
 		if (!data) {
 			out.textContent = "Geen status ontvangen.";
-			return;
+			return null;
 		}
 		const msg = data.message || "Update status";
 		const updated = Array.isArray(data.updated) && data.updated.length
 			? ` | Bestanden: ${data.updated.join(", ")}`
 			: "";
-		out.textContent = `${data.ok ? "OK" : "Fout"}: ${msg}${updated}`;
+		const progress = data.inProgress ? " (bezig...)" : "";
+		out.textContent = `${data.ok ? "OK" : "Fout"}: ${msg}${updated}${progress}`;
+		return data;
 	} catch (err) {
 		out.textContent = `Status fout: ${err?.message || err}`;
+		return null;
 	}
+}
+
+function startUpdateStatusPolling() {
+	if (updateStatusPollTimer) clearInterval(updateStatusPollTimer);
+	updateStatusPollTimer = setInterval(async () => {
+		const status = await fetchUpdateStatus();
+		if (status && !status.inProgress) {
+			clearInterval(updateStatusPollTimer);
+			updateStatusPollTimer = null;
+		}
+	}, 1500);
 }
 
 async function runEspUpdateFromUi() {
@@ -195,6 +211,7 @@ async function runEspUpdateFromUi() {
 			? ` | Bestanden: ${data.updated.join(", ")}`
 			: "";
 		out.textContent = `${data?.ok ? "OK" : "Fout"}: ${msg}${updated}`;
+		startUpdateStatusPolling();
 
 		if (rebootEl.checked) {
 			setConn(false, "ESP32 herstart na update...");

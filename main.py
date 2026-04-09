@@ -68,6 +68,9 @@ update_last_result = {
     "updated": [],
     "ts": 0,
 }
+update_job = None
+update_running = False
+update_reboot_at_ms = None
 
 
 def clamp_int(value, low, high):
@@ -96,8 +99,14 @@ def download_to_file(url, target_path):
     resp = None
     tmp_path = target_path + ".tmp"
     _safe_remove(tmp_path)
+    has_default_timeout = hasattr(socket, "setdefaulttimeout")
 
     try:
+        if has_default_timeout:
+            try:
+                socket.setdefaulttimeout(15)
+            except:
+                pass
         resp = urequests.get(url)
         status = getattr(resp, "status_code", 0)
         if status != 200:
@@ -117,6 +126,11 @@ def download_to_file(url, target_path):
         _safe_remove(target_path)
         os.rename(tmp_path, target_path)
     finally:
+        if has_default_timeout:
+            try:
+                socket.setdefaulttimeout(None)
+            except:
+                pass
         if resp:
             try:
                 resp.close()
@@ -151,6 +165,53 @@ def perform_github_update(base_url=None, files=None):
         "ts": int(time.time()),
     }
     return update_last_result
+
+
+def queue_update_job(base_url=None, files=None, reboot=False):
+    global update_job, update_last_result
+    if update_job or update_running:
+        raise Exception("Update already running")
+
+    update_job = {
+        "baseUrl": base_url,
+        "files": files,
+        "reboot": bool(reboot),
+    }
+    update_last_result = {
+        "ok": True,
+        "message": "Update queued",
+        "updated": [],
+        "ts": int(time.time()),
+    }
+    return update_last_result
+
+
+def process_update_job():
+    global update_job, update_running, update_last_result, update_reboot_at_ms
+
+    if update_job and not update_running:
+        job = update_job
+        update_job = None
+        update_running = True
+        try:
+            result = perform_github_update(job.get("baseUrl"), job.get("files"))
+            if job.get("reboot") and machine is not None:
+                update_reboot_at_ms = time.ticks_add(time.ticks_ms(), 1500)
+                result["message"] = "Update completed, reboot scheduled"
+            update_last_result = result
+        except Exception as e:
+            update_last_result = {
+                "ok": False,
+                "message": str(e),
+                "updated": [],
+                "ts": int(time.time()),
+            }
+        finally:
+            update_running = False
+
+    if update_reboot_at_ms is not None and machine is not None:
+        if time.ticks_diff(time.ticks_ms(), update_reboot_at_ms) >= 0:
+            machine.reset()
 
 # --- 3. HTML (separate files on ESP filesystem to reduce RAM) ---
 
@@ -430,7 +491,14 @@ while True:
                 send_json(conn, {"ok": True})
 
             elif method == "GET" and route_path == "/api/update/status":
-                send_json(conn, update_last_result)
+                status = {
+                    "ok": update_last_result.get("ok"),
+                    "message": update_last_result.get("message"),
+                    "updated": update_last_result.get("updated"),
+                    "ts": update_last_result.get("ts"),
+                    "inProgress": bool(update_running or update_job),
+                }
+                send_json(conn, status)
 
             elif method == "POST" and route_path == "/api/update":
                 try:
@@ -446,15 +514,12 @@ while True:
                     send_forbidden(conn, "Invalid token")
                 else:
                     try:
-                        result = perform_github_update(
+                        result = queue_update_job(
                             payload.get("baseUrl"),
                             payload.get("files"),
+                            payload.get("reboot", False),
                         )
                         send_json(conn, result)
-
-                        if payload.get("reboot", True) and machine is not None:
-                            time.sleep_ms(250)
-                            machine.reset()
                     except Exception as e:
                         update_last_result = {
                             "ok": False,
@@ -504,6 +569,12 @@ while True:
                 send_html(conn)
         finally:
             conn.close()
+    except:
+        pass
+
+    # 5b.1 Background OTA job runner
+    try:
+        process_update_job()
     except:
         pass
 
