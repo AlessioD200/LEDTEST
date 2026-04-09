@@ -42,8 +42,15 @@ let state = {
 	br:      50,
 	lux:     300,
 	temp:    22,
+	motionDetected: null,
 	effects: { wave: false, pulse: false, strobe: false, rainbow: false },
 	customColor: [255, 255, 255],
+	tempMode: {
+		enabled: false,
+		min: 19,
+		max: 25,
+		lastBand: null
+	},
 	manualTimer: {
 		active: false,
 		endAt: null,
@@ -115,6 +122,7 @@ let clockTimer = {
 };
 
 let updateStatusPollTimer = null;
+let customColorPushTimer = null;
 
 // ─── Helper ───────────────────────────────────
 const $ = id => document.getElementById(id);
@@ -253,6 +261,7 @@ function applyBackendState(snapshot) {
 	state.br = Number.isFinite(desired.brightness) ? desired.brightness : state.br;
 	state.lux = Number.isFinite(telemetry.lux) ? telemetry.lux : state.lux;
 	state.temp = Number.isFinite(telemetry.temperature) ? telemetry.temperature : state.temp;
+	state.motionDetected = typeof telemetry.motion === "boolean" ? telemetry.motion : null;
 	state.effects = { wave: false, pulse: false, strobe: false, rainbow: false };
 	if (desired.effect && desired.effect !== "none") {
 		state.effects[desired.effect] = true;
@@ -304,6 +313,55 @@ function applyBackendState(snapshot) {
 	drawChart();
 	updateModal();
 	setConn(!!snapshot.device?.online, snapshot.device?.online ? "Systeem online" : "Device offline");
+}
+
+function updateMotionSensorUi() {
+	const el = $("motion-sensor-status");
+	if (!el) return;
+	if (state.motionDetected === null) {
+		el.textContent = "Geen sensor gevonden";
+		return;
+	}
+	el.textContent = state.motionDetected ? "Beweging gedetecteerd" : "Sensor actief, geen beweging";
+}
+
+function applyTemperatureModeTick() {
+	if (!state.tempMode.enabled) {
+		state.tempMode.lastBand = null;
+		return;
+	}
+
+	const temp = Number(state.temp);
+	if (!Number.isFinite(temp)) return;
+
+	const tMin = Number(state.tempMode.min);
+	const tMax = Number(state.tempMode.max);
+	if (!Number.isFinite(tMin) || !Number.isFinite(tMax) || tMax <= tMin) return;
+
+	let band = "ok";
+	let targetMode = "green";
+	if (temp < tMin) {
+		band = "cold";
+		targetMode = "blue";
+	} else if (temp > tMax) {
+		band = "hot";
+		targetMode = "red";
+	}
+
+	const statusEl = $("temp-mode-status");
+	if (statusEl) {
+		statusEl.textContent = band === "cold"
+			? `Te koud (${temp.toFixed(1)}°C): blauw`
+			: band === "hot"
+				? `Te warm (${temp.toFixed(1)}°C): rood`
+				: `Goed (${temp.toFixed(1)}°C): groen`;
+	}
+
+	if (state.tempMode.lastBand === band && state.mode === targetMode) return;
+	state.tempMode.lastBand = band;
+	state.mode = targetMode;
+	state.effects = { wave: false, pulse: false, strobe: false, rainbow: false };
+	pushDesiredState();
 }
 
 async function pollBackendState() {
@@ -709,6 +767,7 @@ function renderState() {
 	setText("status-lesson", getLessonStatusShort());
 
 	updateTempGauge(state.temp);
+	updateMotionSensorUi();
 	updateManualTimerUI();
 	setText("updated-at", `Laatste update: ${new Date().toLocaleTimeString()}`);
 }
@@ -781,6 +840,7 @@ function startManualTimer() {
 	if (state.mode === "off") {
 		state.mode = "white";
 	}
+	state.tempMode.lastBand = null;
 	clockTimer.lastPower = null;
 	pushDesiredState();
 	updateManualTimerUI();
@@ -794,6 +854,23 @@ function updateClockTimerSettingsFromUi() {
 	clockTimer.enabled = !!enabledEl.checked;
 	clockTimer.on = isValidHhmm(onEl.value) ? onEl.value : "07:00";
 	clockTimer.off = isValidHhmm(offEl.value) ? offEl.value : "22:00";
+}
+
+function updateTempModeSettingsFromUi() {
+	const enabledEl = $("temp-mode-enabled");
+	const minEl = $("temp-min");
+	const maxEl = $("temp-max");
+	if (!enabledEl || !minEl || !maxEl) return;
+
+	state.tempMode.enabled = !!enabledEl.checked;
+	state.tempMode.min = Number(minEl.value);
+	state.tempMode.max = Number(maxEl.value);
+	state.tempMode.lastBand = null;
+
+	const statusEl = $("temp-mode-status");
+	if (statusEl && !state.tempMode.enabled) {
+		statusEl.textContent = "Inactief";
+	}
 }
 
 function applyClockTimerTick() {
@@ -823,6 +900,7 @@ function applyClockTimerTick() {
 		state.mode = "off";
 		state.effects = { wave: false, pulse: false, strobe: false, rainbow: false };
 	}
+	state.tempMode.lastBand = null;
 	pushDesiredState();
 	renderState();
 }
@@ -1327,7 +1405,7 @@ function startLessonTimerSimulation() {
 	}
 	lessonTimer.running = true;
 	lessonTimer.phase = "run";
-	lessonTimer.currentMinute = scheduleBounds.dayStart;
+	lessonTimer.currentMinute = hhmmToMin(`${pad2(new Date().getHours())}:${pad2(new Date().getMinutes())}`);
 	lessonTimer.nextEventIndex = 0;
 	lessonTimer.phaseStartedAt = Date.now();
 	if (state.mode === "off") {
@@ -1344,6 +1422,7 @@ function stopLessonTimerSimulation() {
 	resetLessonTimerState();
 	renderLessonTimer();
 	state.effects = { wave: false, pulse: false, strobe: false, rainbow: false };
+	state.mode = "off";
 	pushDesiredState();
 	pushSchedulerRun(false);
 }
@@ -1429,54 +1508,43 @@ function renderLessonTimer() {
 
 function updateLessonTimerTick() {
 	if (!lessonTimer.running) return;
-	const now = Date.now();
+	const now = new Date();
+	const nowMin = now.getHours() * 60 + now.getMinutes();
+	lessonTimer.currentMinute = nowMin;
 
-	if (lessonTimer.phase === "run") {
-		lessonTimer.currentMinute += 0.4;
-		const nextEvent = lessonEvents[lessonTimer.nextEventIndex] || null;
-		if (nextEvent && lessonTimer.currentMinute >= nextEvent.minute) {
-			lessonTimer.currentMinute = nextEvent.minute;
-			const countdownMs = pauseDurationMinutes * LESSON_MS_PER_MINUTE;
-			setLessonPhase("countdown", countdownMs, now + countdownMs);
-			state.effects = { wave: false, pulse: true, strobe: false, rainbow: false };
-			pushDesiredState();
-		}
-		renderLessonTimer();
-		return;
+	const inLesson = lessonSchedule.some(item => {
+		const s = hhmmToMin(item.start);
+		const e = hhmmToMin(item.end);
+		return nowMin >= s && nowMin < e;
+	});
+	const inPause = pauseMarkers.some(p => {
+		const start = hhmmToMin(p);
+		return nowMin >= start && nowMin < (start + pauseDurationMinutes);
+	});
+
+	let phase = "idle";
+	let desiredMode = "off";
+	let desiredEffects = { wave: false, pulse: false, strobe: false, rainbow: false };
+	if (inPause) {
+		phase = "countdown";
+		desiredMode = "white";
+		desiredEffects = { wave: false, pulse: true, strobe: false, rainbow: false };
+	} else if (inLesson) {
+		phase = "run";
+		desiredMode = "white";
 	}
 
-	if (lessonTimer.phase === "countdown") {
-		if (now < lessonTimer.countdownEndsAt) {
-			renderLessonTimer();
-			return;
-		}
-		lessonTimer.nextEventIndex += 1;
-		setLessonPhase("blink", 1800);
-		state.effects = { wave: false, pulse: false, strobe: true, rainbow: false };
+	const cmdKey = `${phase}|${desiredMode}|${JSON.stringify(desiredEffects)}`;
+	if (lessonTimer.lastCmdKey !== cmdKey) {
+		lessonTimer.lastCmdKey = cmdKey;
+		state.mode = desiredMode;
+		state.effects = desiredEffects;
+		state.tempMode.lastBand = null;
 		pushDesiredState();
-		renderLessonTimer();
-		return;
 	}
 
-	if (lessonTimer.phase === "blink") {
-		if (now - lessonTimer.phaseStartedAt < lessonTimer.phaseDurationMs) {
-			renderLessonTimer();
-			return;
-		}
-		if (lessonTimer.nextEventIndex >= lessonEvents.length) {
-			lessonTimer.phase = "done";
-			lessonTimer.running = false;
-			state.effects = { wave: false, pulse: false, strobe: false, rainbow: false };
-			pushDesiredState();
-			renderLessonTimer();
-			return;
-		}
-		setLessonPhase("run", 0);
-		state.effects = { wave: false, pulse: false, strobe: false, rainbow: false };
-		pushDesiredState();
-		renderLessonTimer();
-		return;
-	}
+	lessonTimer.phase = phase;
+	renderLessonTimer();
 }
 
 // ═══════════════════════════════════════════════
@@ -1532,6 +1600,16 @@ if (colorPicker) {
 		const sw = $("custom-color-swatch");
 		if (sw) sw.style.background = hex;
 		setText("custom-color-hex", hex);
+		const rgb = hexToRgb(hex);
+		state.customColor = rgb;
+		modeBase.custom = rgb;
+		state.mode = "custom";
+		state.effects = { wave: false, pulse: false, strobe: false, rainbow: false };
+		if (customColorPushTimer) clearTimeout(customColorPushTimer);
+		customColorPushTimer = setTimeout(() => {
+			pushDesiredState();
+			customColorPushTimer = null;
+		}, 180);
 	});
 }
 
@@ -1544,6 +1622,10 @@ if (applyBtn) {
 		modeBase.custom   = rgb;
 		state.mode = "custom";
 		state.effects = { wave: false, pulse: false, strobe: false, rainbow: false };
+		if (customColorPushTimer) {
+			clearTimeout(customColorPushTimer);
+			customColorPushTimer = null;
+		}
 		renderState();
 		pushDesiredState();
 	});
@@ -1557,6 +1639,21 @@ if (timerStartBtn) {
 const timerStopBtn = $("manual-timer-stop");
 if (timerStopBtn) {
 	timerStopBtn.addEventListener("click", stopManualTimer);
+}
+
+const tempModeEnabledEl = $("temp-mode-enabled");
+if (tempModeEnabledEl) {
+	tempModeEnabledEl.addEventListener("change", updateTempModeSettingsFromUi);
+}
+
+const tempMinEl = $("temp-min");
+if (tempMinEl) {
+	tempMinEl.addEventListener("change", updateTempModeSettingsFromUi);
+}
+
+const tempMaxEl = $("temp-max");
+if (tempMaxEl) {
+	tempMaxEl.addEventListener("change", updateTempModeSettingsFromUi);
 }
 
 const timerEnabledEl = $("timer-enabled");
@@ -1651,6 +1748,7 @@ document.querySelectorAll(".preset-btn[data-minutes]").forEach(btn => {
 // ═══════════════════════════════════════════════
 function tick() {
 	applyClockTimerTick();
+	applyTemperatureModeTick();
 
 	if (backendSync.enabled) {
 		const t = Date.now() / 1000;
@@ -1710,6 +1808,7 @@ buildEffects();
 buildLessonUI();
 initUpdateDefaults();
 updateClockTimerSettingsFromUi();
+updateTempModeSettingsFromUi();
 initNav();
 initChart();
 initLedCanvas();
