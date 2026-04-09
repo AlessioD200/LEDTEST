@@ -87,6 +87,8 @@ scheduler_config = {
 # --- OTA UPDATE CONFIG ---
 # Set to your own private random token before exposing ESP32 to network.
 UPDATE_AUTH_TOKEN = "Vives_plus"
+# Bump manually when flashing a new firmware build over USB.
+FIRMWARE_VERSION = "esp-2026.04.09.1"
 # Example: https://raw.githubusercontent.com/<owner>/<repo>/<branch>
 UPDATE_BASE_URL = "https://raw.githubusercontent.com/AlessioD200/LEDTEST/main"
 UPDATE_DEFAULT_FILES = [
@@ -94,15 +96,23 @@ UPDATE_DEFAULT_FILES = [
     {"local": "styles.css", "remote": "web/styles.css"},
     {"local": "app.js", "remote": "web/app.js"},
 ]
+UPDATE_VERSION_FILE = "ota_version.json"
 update_last_result = {
     "ok": False,
     "message": "No update run yet",
     "updated": [],
     "ts": 0,
 }
+version_info = {
+    "firmware": FIRMWARE_VERSION,
+    "otaCount": 0,
+    "lastUpdateTs": 0,
+    "lastUpdated": [],
+}
 update_job = None
 update_running = False
 update_reboot_at_ms = None
+update_reboot_pending = False
 
 sensor_registry = {
     "ldr": True,
@@ -218,6 +228,39 @@ def _safe_remove(path):
         pass
 
 
+def load_version_info():
+    global version_info
+    try:
+        with open(UPDATE_VERSION_FILE, "r") as f:
+            raw = f.read()
+        parsed = json.loads(raw)
+        if isinstance(parsed, dict):
+            version_info["otaCount"] = clamp_int(parsed.get("otaCount", 0), 0, 999999)
+            version_info["lastUpdateTs"] = clamp_int(parsed.get("lastUpdateTs", 0), 0, 2147483647)
+            last_updated = parsed.get("lastUpdated", [])
+            if isinstance(last_updated, list):
+                version_info["lastUpdated"] = [str(x) for x in last_updated][:12]
+    except:
+        pass
+
+
+def save_version_info():
+    tmp = UPDATE_VERSION_FILE + ".tmp"
+    _safe_remove(tmp)
+    try:
+        payload = {
+            "otaCount": int(version_info.get("otaCount", 0)),
+            "lastUpdateTs": int(version_info.get("lastUpdateTs", 0)),
+            "lastUpdated": version_info.get("lastUpdated", []),
+        }
+        with open(tmp, "w") as f:
+            f.write(json.dumps(payload))
+        _safe_remove(UPDATE_VERSION_FILE)
+        os.rename(tmp, UPDATE_VERSION_FILE)
+    except:
+        _safe_remove(tmp)
+
+
 def download_to_file(url, target_path):
     if urequests is None:
         raise Exception("urequests not available on this firmware")
@@ -269,7 +312,7 @@ def download_to_file(url, target_path):
 
 
 def perform_github_update(base_url=None, files=None):
-    global update_last_result
+    global update_last_result, version_info
 
     base = base_url or UPDATE_BASE_URL
     if not base:
@@ -308,6 +351,13 @@ def perform_github_update(base_url=None, files=None):
         "updated": updated,
         "ts": int(time.time()),
     }
+
+    version_info["firmware"] = FIRMWARE_VERSION
+    version_info["otaCount"] = int(version_info.get("otaCount", 0)) + 1
+    version_info["lastUpdateTs"] = int(update_last_result["ts"])
+    version_info["lastUpdated"] = updated[:12]
+    save_version_info()
+
     return update_last_result
 
 
@@ -323,7 +373,7 @@ def queue_update_job(base_url=None, files=None, reboot=False):
     }
     update_last_result = {
         "ok": True,
-        "message": "Update queued",
+        "message": "Update queued{}".format(", reboot requested" if bool(reboot) else ""),
         "updated": [],
         "ts": int(time.time()),
     }
@@ -331,16 +381,24 @@ def queue_update_job(base_url=None, files=None, reboot=False):
 
 
 def process_update_job():
-    global update_job, update_running, update_last_result, update_reboot_at_ms
+    global update_job, update_running, update_last_result, update_reboot_at_ms, update_reboot_pending
 
     if update_job and not update_running:
         job = update_job
         update_job = None
         update_running = True
+        update_last_result = {
+            "ok": True,
+            "message": "Update running",
+            "updated": [],
+            "ts": int(time.time()),
+        }
         try:
             result = perform_github_update(job.get("baseUrl"), job.get("files"))
             if job.get("reboot") and machine is not None:
-                update_reboot_at_ms = time.ticks_add(time.ticks_ms(), 1500)
+                update_reboot_pending = True
+                # Give UI polling a short window to fetch final update result before reset.
+                update_reboot_at_ms = time.ticks_add(time.ticks_ms(), 3500)
                 result["message"] = "Update completed, reboot scheduled"
             update_last_result = result
         except Exception as e:
@@ -355,7 +413,20 @@ def process_update_job():
 
     if update_reboot_at_ms is not None and machine is not None:
         if time.ticks_diff(time.ticks_ms(), update_reboot_at_ms) >= 0:
-            machine.reset()
+            # Clear flags before reset attempt to avoid repeated crash loops if reset fails.
+            update_reboot_at_ms = None
+            update_reboot_pending = False
+            try:
+                gc.collect()
+                time.sleep_ms(120)
+                machine.reset()
+            except Exception as e:
+                update_last_result = {
+                    "ok": False,
+                    "message": "Reboot failed: {}".format(str(e)),
+                    "updated": update_last_result.get("updated", []),
+                    "ts": int(time.time()),
+                }
 
 # --- 3. HTML (separate files on ESP filesystem to reduce RAM) ---
 
@@ -502,8 +573,17 @@ def build_state_payload():
             "pirPin": pir_selected_pin,
         },
         "scheduler": scheduler_config,
+        "version": {
+            "firmware": version_info.get("firmware", FIRMWARE_VERSION),
+            "otaCount": version_info.get("otaCount", 0),
+            "lastUpdateTs": version_info.get("lastUpdateTs", 0),
+            "lastUpdated": version_info.get("lastUpdated", []),
+        },
     }
     return payload
+
+
+load_version_info()
 
 
 def parse_request(req):
@@ -677,6 +757,13 @@ while True:
                     "updated": update_last_result.get("updated"),
                     "ts": update_last_result.get("ts"),
                     "inProgress": bool(update_running or update_job),
+                    "rebootPending": bool(update_reboot_pending),
+                    "version": {
+                        "firmware": version_info.get("firmware", FIRMWARE_VERSION),
+                        "otaCount": version_info.get("otaCount", 0),
+                        "lastUpdateTs": version_info.get("lastUpdateTs", 0),
+                        "lastUpdated": version_info.get("lastUpdated", []),
+                    },
                 }
                 send_json(conn, status)
 

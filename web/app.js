@@ -102,6 +102,7 @@ let chartCtx = null;
 let activeModal = null;
 const ALLOW_SIMULATION_FALLBACK = false;
 const DEFAULT_UPDATE_BASE_URL = "https://raw.githubusercontent.com/AlessioD200/LEDTEST/main";
+const WEB_APP_VERSION = "web-2026.04.09.1";
 let backendSync = {
 	enabled: false,
 	ws: null,
@@ -142,6 +143,30 @@ function apiUrl(path) {
 	return `${backendSync.baseUrl}${path}`;
 }
 
+function formatVersionTs(ts) {
+	const n = Number(ts);
+	if (!Number.isFinite(n) || n <= 0) return "-";
+	return new Date(n * 1000).toLocaleString();
+}
+
+function updateVersionInfoUi(versionData) {
+	const webEl = $("web-version");
+	if (webEl) webEl.textContent = WEB_APP_VERSION;
+
+	const espEl = $("esp-version");
+	if (!espEl) return;
+
+	if (!versionData || typeof versionData !== "object") {
+		espEl.textContent = "--";
+		return;
+	}
+
+	const fw = versionData.firmware || "onbekend";
+	const otaCount = Number.isFinite(versionData.otaCount) ? versionData.otaCount : 0;
+	const when = formatVersionTs(versionData.lastUpdateTs);
+	espEl.textContent = `${fw} | OTA #${otaCount} | Laatste: ${when}`;
+}
+
 async function apiRequest(path, options = {}) {
 	const response = await fetch(apiUrl(path), {
 		headers: { "Content-Type": "application/json", ...(options.headers || {}) },
@@ -166,7 +191,9 @@ async function fetchUpdateStatus() {
 			? ` | Bestanden: ${data.updated.join(", ")}`
 			: "";
 		const progress = data.inProgress ? " (bezig...)" : "";
-		out.textContent = `${data.ok ? "OK" : "Fout"}: ${msg}${updated}${progress}`;
+		const reboot = data.rebootPending ? " | Herstart gepland" : "";
+		out.textContent = `${data.ok ? "OK" : "Fout"}: ${msg}${updated}${progress}${reboot}`;
+		updateVersionInfoUi(data.version);
 		return data;
 	} catch (err) {
 		out.textContent = `Status fout: ${err?.message || err}`;
@@ -178,7 +205,7 @@ function startUpdateStatusPolling() {
 	if (updateStatusPollTimer) clearInterval(updateStatusPollTimer);
 	updateStatusPollTimer = setInterval(async () => {
 		const status = await fetchUpdateStatus();
-		if (status && !status.inProgress) {
+		if (status && !status.inProgress && !status.rebootPending) {
 			clearInterval(updateStatusPollTimer);
 			updateStatusPollTimer = null;
 		}
@@ -234,6 +261,7 @@ function initUpdateDefaults() {
 	if (baseEl && !(baseEl.value || "").trim()) {
 		baseEl.value = DEFAULT_UPDATE_BASE_URL;
 	}
+	updateVersionInfoUi(null);
 }
 
 function getDesiredPayload() {
@@ -305,6 +333,8 @@ function applyBackendState(snapshot) {
 		if (pauseDurationInput) pauseDurationInput.value = String(pauseDurationMinutes);
 		renderLessonTimer();
 	}
+
+	updateVersionInfoUi(snapshot.version);
 
 	luxHistory.push(state.lux);
 	if (luxHistory.length > LUX_MAX) luxHistory.shift();
