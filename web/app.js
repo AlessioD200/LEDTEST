@@ -178,7 +178,7 @@ function updateVersionInfoUi(versionData) {
 	const buildId = versionData.buildId || "onbekend";
 	const otaCount = Number.isFinite(versionData.otaCount) ? versionData.otaCount : 0;
 	const when = formatVersionTs(versionData.lastUpdateTs);
-	espEl.textContent = `${fw} | ${buildId} | OTA #${otaCount} | Laatste: ${when}`;
+	espEl.textContent = `${fw} | ${buildId} | Update #${otaCount} | Laatste: ${when}`;
 }
 
 async function apiRequest(path, options = {}) {
@@ -281,7 +281,7 @@ async function runEspUpdateFromUi() {
 		startUpdateStatusPolling();
 
 		if (rebootEl.checked) {
-			setConn(false, "ESP32 herstart na update...");
+			setConn(false, "Controller herstart na update...");
 		}
 	} catch (err) {
 		out.textContent = `Update fout: ${err?.message || err}`;
@@ -481,7 +481,7 @@ async function pollBackendState() {
 		const snapshot = await apiRequest("/api/state");
 		applyBackendState(snapshot);
 	} catch {
-		setConn(false, "Geen data van ESP32");
+		setConn(false, "Geen data van controller");
 	}
 }
 
@@ -493,7 +493,7 @@ async function pushDesiredState() {
 			body: JSON.stringify(getDesiredPayload())
 		});
 	} catch {
-		setConn(false, "ESP32 API fout");
+		setConn(false, "Controller API fout");
 	}
 }
 
@@ -562,7 +562,7 @@ async function initBackendSync() {
 		}
 	} catch {
 		backendSync.enabled = false;
-		setConn(false, "ESP32 niet bereikbaar");
+		setConn(false, "Controller niet bereikbaar");
 		if (!backendSync.reconnectTimer) {
 			backendSync.reconnectTimer = setInterval(() => {
 				if (!backendSync.enabled) initBackendSync();
@@ -651,7 +651,7 @@ function drawLuxChart(ctx, history, totalH) {
 	ctx.clearRect(0, 0, w, totalH);
 
 	// chart background
-	ctx.fillStyle = "#f8fafc";
+	ctx.fillStyle = "rgba(255,255,255,0.02)";
 	ctx.fillRect(pL, pT, cW, cH);
 
 	// Y axis lines + labels
@@ -660,21 +660,21 @@ function drawLuxChart(ctx, history, totalH) {
 	ctx.textAlign = "right";
 	[0, 250, 500, 750, 1000].forEach(val => {
 		const y = pT + cH * (1 - val / maxL);
-		ctx.strokeStyle = val === 0 ? "#cbd5e1" : "#e2e8f0";
+		ctx.strokeStyle = val === 0 ? "rgba(255,255,255,0.15)" : "rgba(255,255,255,0.06)";
 		ctx.lineWidth = 1;
 		ctx.beginPath(); ctx.moveTo(pL, y); ctx.lineTo(pL + cW, y); ctx.stroke();
-		ctx.fillStyle = "#94a3b8";
+		ctx.fillStyle = "#64748b";
 		ctx.fillText(val === 1000 ? "1k lx" : val + " lx", pL - 5, y);
 	});
 
 	// X axis border
-	ctx.strokeStyle = "#cbd5e1"; ctx.lineWidth = 1;
+	ctx.strokeStyle = "rgba(255,255,255,0.12)"; ctx.lineWidth = 1;
 	ctx.beginPath(); ctx.moveTo(pL, pT + cH); ctx.lineTo(pL + cW, pT + cH); ctx.stroke();
 
 	// X time labels
 	ctx.textAlign = "center";
 	ctx.textBaseline = "top";
-	ctx.fillStyle = "#94a3b8";
+	ctx.fillStyle = "#64748b";
 	["60s", "45s", "30s", "15s", "nu"].forEach((label, i) => {
 		const x = pL + (i / 4) * cW;
 		ctx.fillText(label, x, pT + cH + 5);
@@ -1257,10 +1257,11 @@ const MODALS = {
 							</linearGradient>
 						</defs>
 						<path d="M 30 158 A 130 130 0 0 1 290 158" fill="none" stroke="#e5e7eb" stroke-width="22" stroke-linecap="round"/>
+											<path d="M 30 158 A 130 130 0 0 1 290 158" fill="none" stroke="rgba(255,255,255,0.1)" stroke-width="22" stroke-linecap="round"/>
 						<path id="m-temp-arc" d="M 30 158 A 130 130 0 0 1 290 158" fill="none" stroke="url(#tg2)" stroke-width="22" stroke-linecap="round" stroke-dasharray="408" stroke-dashoffset="408"/>
-						<text x="160" y="132" text-anchor="middle" font-size="44" font-weight="800" fill="#0f172a" font-family="-apple-system,sans-serif" id="m-temp-text">--°C</text>
-						<text x="30"  y="176" text-anchor="middle" font-size="13" fill="#9ca3af" font-family="-apple-system,sans-serif">10°C</text>
-						<text x="290" y="176" text-anchor="middle" font-size="13" fill="#9ca3af" font-family="-apple-system,sans-serif">40°C</text>
+						<text x="160" y="132" text-anchor="middle" font-size="44" font-weight="800" fill="#e2e8f0" font-family="-apple-system,sans-serif" id="m-temp-text">--°C</text>
+						<text x="30"  y="176" text-anchor="middle" font-size="13" fill="#64748b" font-family="-apple-system,sans-serif">10°C</text>
+						<text x="290" y="176" text-anchor="middle" font-size="13" fill="#64748b" font-family="-apple-system,sans-serif">40°C</text>
 					</svg>
 				</div>`;
 		},
@@ -2014,3 +2015,46 @@ fetchUpdateStatus();
 updateManualTimerUI();
 tick();
 setInterval(tick, 120);
+
+// ═══════════════════════════════════════════════
+//  SWIPE SIDEBAR + TOPBAR AUTO-HIDE
+// ═══════════════════════════════════════════════
+(function () {
+	const backdrop = $("sidebar-backdrop");
+	function openSidebar()  { document.body.classList.add("sidebar-open"); }
+	function closeSidebar() { document.body.classList.remove("sidebar-open"); }
+
+	if (backdrop) backdrop.addEventListener("click", closeSidebar);
+	document.querySelectorAll(".nav-btn").forEach(btn => {
+		btn.addEventListener("click", () => { if (window.innerWidth < 1024) closeSidebar(); });
+	});
+
+	let swipeStartX = 0, swipeStartY = 0, swipeTracking = false;
+	document.addEventListener("touchstart", e => {
+		swipeStartX = e.touches[0].clientX;
+		swipeStartY = e.touches[0].clientY;
+		swipeTracking = swipeStartX < 32 || document.body.classList.contains("sidebar-open");
+	}, { passive: true });
+	document.addEventListener("touchend", e => {
+		if (!swipeTracking) return;
+		const dx = e.changedTouches[0].clientX - swipeStartX;
+		const dy = e.changedTouches[0].clientY - swipeStartY;
+		if (Math.abs(dy) > Math.abs(dx) * 1.2) { swipeTracking = false; return; }
+		if (dx > 55 && !document.body.classList.contains("sidebar-open")) openSidebar();
+		else if (dx < -55 && document.body.classList.contains("sidebar-open")) closeSidebar();
+		swipeTracking = false;
+	}, { passive: true });
+
+	// Topbar auto-hide on scroll
+	const topbar = document.querySelector(".topbar");
+	const mainEl = document.getElementById("main-content");
+	let lastScrollY = 0;
+	if (mainEl && topbar) {
+		mainEl.addEventListener("scroll", () => {
+			const y = mainEl.scrollTop;
+			if (y > lastScrollY + 8 && y > 60) topbar.classList.add("topbar-hidden");
+			else if (y < lastScrollY - 8 || y <= 60) topbar.classList.remove("topbar-hidden");
+			lastScrollY = y;
+		}, { passive: true });
+	}
+})();

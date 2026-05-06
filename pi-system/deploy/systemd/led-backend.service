@@ -1,6 +1,6 @@
 [Unit]
 Description=LED Pi Backend
-After=network-online.target mosquitto.service
+After=network-online.target
 Wants=network-online.target
 
 [Service]

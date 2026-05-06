@@ -2,6 +2,7 @@ import { config } from "./config.js";
 import { makeTopics } from "./topics.js";
 import { StateStore } from "./stateStore.js";
 import { MqttService } from "./mqttService.js";
+import { LocalPiDevice } from "./localPiDevice.js";
 import { SimulatorDevice } from "./simulatorDevice.js";
 import { Scheduler } from "./scheduler.js";
 import { createServer } from "./server.js";
@@ -46,10 +47,26 @@ const deviceTransport = config.deviceMode === "mqtt"
       topics,
       ...transportHandlers
     })
-  : new SimulatorDevice({
-      stateStore,
-      ...transportHandlers
-    });
+  : config.deviceMode === "local-pi"
+    ? new LocalPiDevice({
+        stateStore,
+        bridgePath: config.localPiBridgePath,
+        pythonBin: config.pythonBin,
+        ledCount: config.ledCount,
+        ledGpioPin: config.ledGpioPin,
+        ledBrightness: config.ledBrightness,
+        ledDma: config.ledDma,
+        ledFreqHz: config.ledFreqHz,
+        ledInvert: config.ledInvert,
+        ledChannel: config.ledChannel,
+        ledStripType: config.ledStripType,
+        pirGpioPin: config.pirGpioPin,
+        ...transportHandlers
+      })
+    : new SimulatorDevice({
+        stateStore,
+        ...transportHandlers
+      });
 
 if (typeof deviceTransport.start === "function") {
   deviceTransport.start();

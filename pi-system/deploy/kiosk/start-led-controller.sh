@@ -18,6 +18,16 @@ xset s off >/dev/null 2>&1 || true
 xset s noblank >/dev/null 2>&1 || true
 xset -dpms >/dev/null 2>&1 || true
 
+CHROMIUM_BIN=""
+if command -v chromium-browser >/dev/null 2>&1; then
+  CHROMIUM_BIN="$(command -v chromium-browser)"
+elif command -v chromium >/dev/null 2>&1; then
+  CHROMIUM_BIN="$(command -v chromium)"
+else
+  echo "Chromium not found" >&2
+  exit 1
+fi
+
 pkill -f "unclutter" >/dev/null 2>&1 || true
 if command -v unclutter >/dev/null 2>&1; then
   unclutter -display "$DISPLAY" -noevents -grab >/dev/null 2>&1 &
@@ -33,7 +43,7 @@ done
 
 # Relaunch Chromium if it crashes/closes.
 while true; do
-  /usr/bin/chromium \
+  "$CHROMIUM_BIN" \
     --kiosk \
     --noerrdialogs \
     --disable-infobars \

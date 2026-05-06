@@ -1,0 +1,65 @@
+<!DOCTYPE html>
+<html lang="nl">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+<title>Dashboard</title>
+<link rel="stylesheet" href="style.css">
+</head>
+
+<body>
+
+<!-- TOPBAR -->
+<div class="topbar" id="topbar">
+	<div class="brand-text">
+		<h1>CanaryOS</h1>
+		<p>Smart Dashboard</p>
+	</div>
+</div>
+
+<!-- GLASS MENU -->
+<div class="sidebar" id="sidebar">
+	<div class="nav-list">
+		<button class="nav-btn active" onclick="switchPage('home')">🏠 Home</button>
+		<button class="nav-btn" onclick="switchPage('status')">📊 Status</button>
+		<button class="nav-btn" onclick="switchPage('color')">🎨 Kleur</button>
+		<button class="nav-btn" onclick="switchPage('auto')">⚙️ Auto</button>
+	</div>
+</div>
+
+<!-- MAIN -->
+<div class="layout">
+
+	<!-- HOME -->
+	<div class="page active" id="home">
+		<div class="grid">
+			<div class="tile">⚡ Energie</div>
+			<div class="tile">🌡 Temp</div>
+			<div class="tile">💡 Licht</div>
+			<div class="tile">🔋 Battery</div>
+		</div>
+	</div>
+
+	<!-- STATUS -->
+	<div class="page" id="status">
+		<div class="grid">
+			<div class="tile big">📡 Network</div>
+			<div class="tile big">📶 Signal</div>
+		</div>
+	</div>
+
+	<!-- COLOR -->
+	<div class="page" id="color">
+		<div class="tile full">🎨 RGB Controls</div>
+	</div>
+
+	<!-- AUTO -->
+	<div class="page" id="auto">
+		<div class="tile full">⚙️ Automation</div>
+	</div>
+
+</div>
+
+<script src="app.js"></script>
+</body>
+</html>

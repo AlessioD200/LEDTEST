@@ -51,6 +51,7 @@
 				</li>
 			</ul>
 		</nav>
+		<div class="sidebar-backdrop" id="sidebar-backdrop"></div>
 
 		<!-- MAIN CONTENT -->
 		<main class="main-content" id="main-content">
@@ -452,12 +453,12 @@
 								<svg viewBox="0 0 24 24" fill="currentColor"><path d="M3 17h2v2h14v-2h2v4H3v-4zm9-14 5 5h-3v6h-4V8H7l5-5z"/></svg>
 							</div>
 							<div class="auto-header-text">
-								<h3>ESP32 Update</h3>
-								<p class="small">Update code rechtstreeks van GitHub (OTA).</p>
+								<h3>Raspberry Pi Update</h3>
+								<p class="small">Werk de lokale dashboardbestanden rechtstreeks bij vanuit GitHub.</p>
 							</div>
 						</div>
 						<div class="auto-card-body">
-							<p class="small" style="margin:0 0 8px 0;">ESP versie: <strong id="esp-version">--</strong></p>
+							<p class="small" style="margin:0 0 8px 0;">Controller versie: <strong id="esp-version">--</strong></p>
 							<p class="small" style="margin:0 0 10px 0;">Web versie: <strong id="web-version">--</strong></p>
 							<label class="field-label" for="update-token">Update token</label>
 							<input type="password" id="update-token" class="input" placeholder="Token uit main.py" />
@@ -468,7 +469,7 @@
 								<input type="checkbox" id="update-reboot" />
 							</div>
 							<div class="manual-timer-actions" style="margin-top:10px;">
-								<button class="btn" id="esp-update-run" type="button">Update ESP32</button>
+								<button class="btn" id="esp-update-run" type="button">Update controller</button>
 								<button class="btn btn-secondary" id="esp-update-refresh" type="button">Status verversen</button>
 							</div>
 							<p class="small" id="esp-update-status" style="margin-top:10px; word-break:break-word;">Nog geen update uitgevoerd.</p>

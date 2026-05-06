@@ -1,18 +1,49 @@
-# Raspberry Pi 3 Touch + ESP32 LED System
+# Raspberry Pi 3 LED System
 
-Native touchscreen control system for Smart Pi Touch 7 inch with real ESP32 communication.
+Touchscreen LED control system for a Raspberry Pi 3 and 7-inch display.
 
-Primary production mode:
+Recommended production mode:
 
-- `mqtt`: real communication with ESP32 over MQTT
+- `local-pi`: the Raspberry Pi drives the LED strip directly
 
-Optional fallback mode for development:
+Optional modes:
 
-- `simulator`: test without ESP32
+- `simulator`: test without hardware
+- `mqtt`: legacy ESP32 transport, still available if needed
+
+For the direct Raspberry Pi install path, follow `RPI3_INSTALL.md`.
+
+## Fast install and update (push/pull)
+
+If you want the simplest workflow, use only git push on your Mac and one script on the Pi.
+
+First install on Pi (one time):
+
+```bash
+cd /home/ledvives/LEDTEST
+chmod +x pi-system/deploy/install-from-git.sh
+./pi-system/deploy/install-from-git.sh
+```
+
+Daily update on Pi after you push to GitHub:
+
+```bash
+cd /home/ledvives/LEDTEST
+chmod +x pi-system/deploy/update-from-git.sh
+./pi-system/deploy/update-from-git.sh
+```
+
+That update script does:
+
+- `git pull --ff-only`
+- `npm install --omit=dev` in backend
+- restart `led-backend.service`
+- restart `led-kiosk.service`
 
 ## What is included
 
 - `backend/`: Node.js backend (REST + WebSocket + simulator or MQTT + persisted state + scheduler)
+- `local-device/rpi_led_bridge.py`: local WS281x bridge for direct Raspberry Pi strip control
 - `deploy/mosquitto/mosquitto.conf`: local MQTT broker config
 - `deploy/systemd/*.service`: auto-start backend + kiosk on boot
 - `esp32/esp32_led_controller.ino`: ESP32 firmware template for LED strip
