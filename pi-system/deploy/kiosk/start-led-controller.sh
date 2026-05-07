@@ -10,6 +10,7 @@ set -u
 KIOSK_URL="${1:-http://127.0.0.1:3000/}"
 DISPLAY_VAL="${DISPLAY:-:0}"
 XAUTH_VAL="${XAUTHORITY:-$HOME/.Xauthority}"
+SCALE_FACTOR="${KIOSK_SCALE_FACTOR:-1.0}"
 
 export DISPLAY="$DISPLAY_VAL"
 export XAUTHORITY="$XAUTH_VAL"
@@ -30,7 +31,7 @@ fi
 
 pkill -f "unclutter" >/dev/null 2>&1 || true
 if command -v unclutter >/dev/null 2>&1; then
-  unclutter -display "$DISPLAY" -noevents -grab >/dev/null 2>&1 &
+  unclutter -display "$DISPLAY" -noevents >/dev/null 2>&1 &
 fi
 
 # Wait for backend URL briefly so Chromium does not open an immediate error page.
@@ -47,9 +48,10 @@ while true; do
     --kiosk \
     --noerrdialogs \
     --disable-infobars \
+    --enable-touch-events \
     --touch-events=enabled \
     --overscroll-history-navigation=0 \
-    --force-device-scale-factor=1.2 \
+    --force-device-scale-factor="$SCALE_FACTOR" \
     --user-data-dir=/tmp/chromium-kiosk \
     --no-first-run \
     --disable-session-crashed-bubble \

@@ -30,12 +30,14 @@
 	 RESET
 ═══════════════════════════════════════════ */
 *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+html, body { height: 100%; }
 body {
 	font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
 	background: var(--bg);
 	color: var(--text);
 	min-height: 100vh;
-	overflow-x: hidden;
+	overflow: hidden;
+	touch-action: manipulation;
 	background-image:
 		radial-gradient(circle at 15% 85%, rgba(227,6,19,0.04) 0%, transparent 55%),
 		radial-gradient(circle at 85% 15%, rgba(29,78,216,0.04) 0%, transparent 55%);
@@ -90,7 +92,8 @@ body {
 .layout {
 	display: flex;
 	margin-top: var(--topbar-h);
-	min-height: calc(100vh - var(--topbar-h));
+	height: calc(100vh - var(--topbar-h));
+	overflow: hidden;
 }
 
 /* ═══════════════════════════════════════════
@@ -108,6 +111,7 @@ body {
 	top: var(--topbar-h);
 	height: calc(100vh - var(--topbar-h));
 	overflow-y: auto;
+	-webkit-overflow-scrolling: touch;
 	z-index: 100;
 }
 
@@ -155,7 +159,39 @@ body {
 /* ═══════════════════════════════════════════
 	 MAIN CONTENT
 ═══════════════════════════════════════════ */
-.main-content { flex: 1; min-width: 0; padding: 24px; overflow-y: auto; height: calc(100vh - var(--topbar-h)); }
+.main-content {
+	flex: 1;
+	min-width: 0;
+	padding: 24px;
+	height: calc(100vh - var(--topbar-h));
+	overflow-y: auto;
+	overflow-x: hidden;
+	-webkit-overflow-scrolling: touch;
+	overscroll-behavior: contain;
+	touch-action: pan-y;
+}
+
+/* Reduce glass/blur cost on low-power devices like Raspberry Pi 3 */
+body.low-power .topbar,
+body.low-power .sidebar,
+body.low-power .stat-card,
+body.low-power .status-chip-sidebar,
+body.low-power .auto-card,
+body.low-power .brightness-panel,
+body.low-power .effects-panel,
+body.low-power .custom-color-card,
+body.low-power .modal-card {
+	backdrop-filter: none !important;
+	-webkit-backdrop-filter: none !important;
+	box-shadow: none !important;
+}
+body.low-power .page.active,
+body.low-power .stat-card.clickable,
+body.low-power .btn,
+body.low-power .nav-btn {
+	animation: none !important;
+	transition: none !important;
+}
 
 /* ═══════════════════════════════════════════
 	 PAGES

@@ -2020,11 +2020,21 @@ setInterval(tick, 120);
 //  SWIPE SIDEBAR + TOPBAR AUTO-HIDE
 // ═══════════════════════════════════════════════
 (function () {
+	if (navigator.hardwareConcurrency && navigator.hardwareConcurrency <= 4) {
+		document.body.classList.add("low-power");
+	}
+
 	const backdrop = $("sidebar-backdrop");
+	const brandWrap = document.querySelector(".brand-wrap");
 	function openSidebar()  { document.body.classList.add("sidebar-open"); }
 	function closeSidebar() { document.body.classList.remove("sidebar-open"); }
 
 	if (backdrop) backdrop.addEventListener("click", closeSidebar);
+	if (brandWrap) {
+		brandWrap.addEventListener("click", () => {
+			if (window.innerWidth < 1024) openSidebar();
+		});
+	}
 	document.querySelectorAll(".nav-btn").forEach(btn => {
 		btn.addEventListener("click", () => { if (window.innerWidth < 1024) closeSidebar(); });
 	});
@@ -2033,7 +2043,7 @@ setInterval(tick, 120);
 	document.addEventListener("touchstart", e => {
 		swipeStartX = e.touches[0].clientX;
 		swipeStartY = e.touches[0].clientY;
-		swipeTracking = swipeStartX < 32 || document.body.classList.contains("sidebar-open");
+		swipeTracking = swipeStartX < 72 || document.body.classList.contains("sidebar-open");
 	}, { passive: true });
 	document.addEventListener("touchend", e => {
 		if (!swipeTracking) return;
