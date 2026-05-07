@@ -167,8 +167,9 @@ class APA102Strip:
             g = (packed >> 8) & 0xFF
             b = packed & 0xFF
             buf += bytearray([header_byte, b, g, r])
-        # End frame: at least ceil(n/2) bits of 1; use ceil(n/16) bytes of 0xFF
-        end_bytes = max(1, (self._count + 15) // 16)
+        # End frame: ceil(n/2) bytes of 0xFF — each APA102 in the chain needs
+        # one extra clock per two LEDs to propagate data to the end of the strip.
+        end_bytes = max(1, (self._count + 1) // 2)
         buf += bytearray([0xFF] * end_bytes)
         # xfer2 is limited to ~4096 bytes on some kernels; chunk if needed
         chunk = 4096
