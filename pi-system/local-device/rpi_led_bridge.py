@@ -189,7 +189,7 @@ class DesiredState:
 
 class Bridge:
     def __init__(self) -> None:
-        self.led_count = env_int("LED_COUNT", 60)
+        self.led_count = env_int("LED_COUNT", 144)
         self.led_brightness = env_int("LED_BRIGHTNESS", 255)
         self.spi_bus = env_int("SPI_BUS", 0)
         self.spi_device = env_int("SPI_DEVICE", 0)
