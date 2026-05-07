@@ -21,11 +21,11 @@ from pathlib import Path
 from typing import Optional
 
 try:
-    from rpi_ws281x import Color, PixelStrip, ws  # type: ignore
+    import spidev as _spidev  # type: ignore
+    _spidev_available = True
 except Exception:  # pragma: no cover - expected on non-Pi machines
-    Color = None
-    PixelStrip = None
-    ws = None
+    _spidev = None  # type: ignore
+    _spidev_available = False
 
 try:
     import RPi.GPIO as GPIO  # type: ignore
@@ -119,6 +119,63 @@ class MockStrip:
         return None
 
 
+class APA102Strip:
+    """Hardware SPI driver for APA102/SK9822 LED strips.
+
+    Frame format per LED: [0b111_bbbbb, Blue, Green, Red]
+    where bbbbb is 5-bit global brightness (0-31).
+    """
+
+    def __init__(self, count: int, spi_bus: int = 0, spi_device: int = 0,
+                 max_speed_hz: int = 8_000_000):
+        self._count = count
+        self._spi_bus = spi_bus
+        self._spi_device = spi_device
+        self._max_speed_hz = max_speed_hz
+        # Store as packed (r<<16)|(g<<8)|b ints
+        self._pixels: list[int] = [0] * count
+        self._brightness = 255  # 0-255
+        self._spi = None
+
+    def begin(self) -> None:
+        dev = _spidev.SpiDev()  # type: ignore[union-attr]
+        dev.open(self._spi_bus, self._spi_device)
+        dev.max_speed_hz = self._max_speed_hz
+        dev.mode = 0b00
+        self._spi = dev
+
+    def numPixels(self) -> int:
+        return self._count
+
+    def setPixelColor(self, index: int, color: int) -> None:
+        """color is (r << 16) | (g << 8) | b"""
+        if 0 <= index < self._count:
+            self._pixels[index] = color
+
+    def setBrightness(self, brightness: int) -> None:
+        self._brightness = max(0, min(255, brightness))
+
+    def show(self) -> None:
+        if self._spi is None:
+            return
+        # Scale global brightness 0-255 → 0-31 (APA102 5-bit)
+        apa_br = (self._brightness * 31) // 255
+        header_byte = 0b11100000 | apa_br
+        buf = bytearray(4)  # start frame: 4 x 0x00
+        for packed in self._pixels:
+            r = (packed >> 16) & 0xFF
+            g = (packed >> 8) & 0xFF
+            b = packed & 0xFF
+            buf += bytearray([header_byte, b, g, r])
+        # End frame: at least ceil(n/2) bits of 1; use ceil(n/16) bytes of 0xFF
+        end_bytes = max(1, (self._count + 15) // 16)
+        buf += bytearray([0xFF] * end_bytes)
+        # xfer2 is limited to ~4096 bytes on some kernels; chunk if needed
+        chunk = 4096
+        for offset in range(0, len(buf), chunk):
+            self._spi.xfer2(list(buf[offset:offset + chunk]))
+
+
 @dataclass
 class DesiredState:
     power: bool = True
@@ -132,13 +189,9 @@ class DesiredState:
 class Bridge:
     def __init__(self) -> None:
         self.led_count = env_int("LED_COUNT", 60)
-        self.led_gpio_pin = env_int("LED_GPIO_PIN", 18)
         self.led_brightness = env_int("LED_BRIGHTNESS", 255)
-        self.led_dma = env_int("LED_DMA", 10)
-        self.led_freq_hz = env_int("LED_FREQ_HZ", 800000)
-        self.led_invert = env_bool("LED_INVERT", False)
-        self.led_channel = env_int("LED_CHANNEL", 0)
-        self.led_strip_type = str(os.environ.get("LED_STRIP_TYPE", "grb")).strip().lower()
+        self.spi_bus = env_int("SPI_BUS", 0)
+        self.spi_device = env_int("SPI_DEVICE", 0)
         self.pir_gpio_pin = os.environ.get("PIR_GPIO_PIN", "").strip()
 
         self.running = True
@@ -148,21 +201,15 @@ class Bridge:
         self.last_status_sent = 0.0
         self.last_telemetry_sent = 0.0
         self.motion_state = False
-        self.mock_mode = PixelStrip is None or Color is None
+        self.mock_mode = not _spidev_available or not Path("/dev/spidev0.0").exists()
 
-        strip_type = self.resolve_strip_type()
         if self.mock_mode:
             self.strip = MockStrip(self.led_count)
         else:
-            self.strip = PixelStrip(
+            self.strip = APA102Strip(
                 self.led_count,
-                self.led_gpio_pin,
-                self.led_freq_hz,
-                self.led_dma,
-                self.led_invert,
-                self.led_brightness,
-                self.led_channel,
-                strip_type,
+                spi_bus=self.spi_bus,
+                spi_device=self.spi_device,
             )
         self.strip.begin()
 
@@ -174,19 +221,6 @@ class Bridge:
                 self.pir_enabled = True
             except Exception:
                 self.pir_enabled = False
-
-    def resolve_strip_type(self):
-        if ws is None:
-            return 0
-        mapping = {
-            "grb": ws.WS2811_STRIP_GRB,
-            "rgb": ws.WS2811_STRIP_RGB,
-            "brg": ws.WS2811_STRIP_BRG,
-            "gbr": ws.WS2811_STRIP_GBR,
-            "rgbw": ws.SK6812_STRIP_RGBW,
-            "grbw": ws.SK6812_STRIP_GRBW,
-        }
-        return mapping.get(self.led_strip_type, ws.WS2811_STRIP_GRB)
 
     def emit(self, payload: dict) -> None:
         sys.stdout.write(json.dumps(payload, separators=(",", ":")) + "\n")
@@ -297,10 +331,7 @@ class Bridge:
             elif effect == "rainbow":
                 red, green, blue = wheel((index * 256 // max(1, self.strip.numPixels()) + int(elapsed * 70)) % 256)
 
-            if self.mock_mode:
-                color_value = (red << 16) | (green << 8) | blue
-            else:
-                color_value = Color(int(red), int(green), int(blue))
+            color_value = (red << 16) | (green << 8) | blue
             self.strip.setPixelColor(index, color_value)
 
         self.strip.show()

@@ -1,4 +1,5 @@
 {
+    "python.analysis.ignore": ["main.py"],
     "chat.tools.terminal.autoApprove": {
         "/^python3 -m py_compile pi-system/native-controller/app_kivy\\.py$/": {
             "approve": true,

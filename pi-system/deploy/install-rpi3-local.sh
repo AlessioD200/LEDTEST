@@ -12,13 +12,9 @@ APP_HOME="$HOME"
 PORT="${LED_PORT:-3001}"
 KIOSK_URL="http://127.0.0.1:${PORT}/"
 LED_COUNT_VALUE="${LED_COUNT:-60}"
-LED_GPIO_PIN_VALUE="${LED_GPIO_PIN:-18}"
 LED_BRIGHTNESS_VALUE="${LED_BRIGHTNESS:-255}"
-LED_DMA_VALUE="${LED_DMA:-10}"
-LED_FREQ_HZ_VALUE="${LED_FREQ_HZ:-800000}"
-LED_INVERT_VALUE="${LED_INVERT:-0}"
-LED_CHANNEL_VALUE="${LED_CHANNEL:-0}"
-LED_STRIP_TYPE_VALUE="${LED_STRIP_TYPE:-grb}"
+SPI_BUS_VALUE="${SPI_BUS:-0}"
+SPI_DEVICE_VALUE="${SPI_DEVICE:-0}"
 PIR_GPIO_PIN_VALUE="${PIR_GPIO_PIN:-}"
 
 set_env() {
@@ -48,7 +44,15 @@ EOF
 sudo apt update
 sudo apt install -y nodejs npm python3 python3-pip curl x11-xserver-utils unclutter
 ensure_chromium
-sudo python3 -m pip install --break-system-packages rpi_ws281x
+# Enable hardware SPI if not already active
+if ! grep -q '^dtparam=spi=on' /boot/config.txt 2>/dev/null && \
+   ! grep -q '^dtparam=spi=on' /boot/firmware/config.txt 2>/dev/null; then
+  BOOT_CFG=""
+  [[ -f /boot/firmware/config.txt ]] && BOOT_CFG=/boot/firmware/config.txt || BOOT_CFG=/boot/config.txt
+  echo "dtparam=spi=on" | sudo tee -a "$BOOT_CFG" >/dev/null
+  echo "SPI enabled in $BOOT_CFG — a reboot will be required before first use."
+fi
+sudo python3 -m pip install --break-system-packages spidev RPi.GPIO
 
 if [[ ! -f "$ENV_FILE" ]]; then
   cp "$BACKEND_DIR/.env.example" "$ENV_FILE"
@@ -58,13 +62,9 @@ set_env PORT "$PORT"
 set_env DEVICE_MODE local-pi
 set_env PYTHON_BIN /usr/bin/python3
 set_env LED_COUNT "$LED_COUNT_VALUE"
-set_env LED_GPIO_PIN "$LED_GPIO_PIN_VALUE"
 set_env LED_BRIGHTNESS "$LED_BRIGHTNESS_VALUE"
-set_env LED_DMA "$LED_DMA_VALUE"
-set_env LED_FREQ_HZ "$LED_FREQ_HZ_VALUE"
-set_env LED_INVERT "$LED_INVERT_VALUE"
-set_env LED_CHANNEL "$LED_CHANNEL_VALUE"
-set_env LED_STRIP_TYPE "$LED_STRIP_TYPE_VALUE"
+set_env SPI_BUS "$SPI_BUS_VALUE"
+set_env SPI_DEVICE "$SPI_DEVICE_VALUE"
 if [[ -n "$PIR_GPIO_PIN_VALUE" ]]; then
   set_env PIR_GPIO_PIN "$PIR_GPIO_PIN_VALUE"
 fi
@@ -89,8 +89,8 @@ EnvironmentFile=$ENV_FILE
 ExecStart=/usr/bin/node $BACKEND_DIR/src/index.js
 Restart=always
 RestartSec=3
-User=$APP_USER
-Group=$APP_GROUP
+User=root
+Group=root
 
 [Install]
 WantedBy=multi-user.target
