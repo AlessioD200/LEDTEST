@@ -32,6 +32,17 @@ try:
 except Exception:  # pragma: no cover - expected on non-Pi machines
     GPIO = None
 
+try:
+    import board  # type: ignore
+    import busio  # type: ignore
+    from adafruit_scd30 import SCD30 as _SCD30  # type: ignore
+    _scd30_lib_available = True
+except Exception:  # pragma: no cover - expected when package is not installed
+    board = None  # type: ignore
+    busio = None  # type: ignore
+    _SCD30 = None  # type: ignore
+    _scd30_lib_available = False
+
 
 def env_int(name: str, default: int) -> int:
     raw = os.environ.get(name)
@@ -204,6 +215,15 @@ class Bridge:
         self.last_telemetry_sent = 0.0
         self.motion_state = False
         self.mock_mode = not _spidev_available or not Path("/dev/spidev0.0").exists()
+        self.scd30_enabled = env_bool("SCD30_ENABLED", True)
+        self.scd30 = None
+        self.scd30_detected = False
+        self.scd30_last_read = 0.0
+        self.scd30_data = {
+            "co2": None,
+            "humidity": None,
+            "temperature": None,
+        }
 
         if self.mock_mode:
             self.strip = MockStrip(self.led_count)
@@ -223,6 +243,18 @@ class Bridge:
                 self.pir_enabled = True
             except Exception:
                 self.pir_enabled = False
+
+        if self.scd30_enabled and _scd30_lib_available and board is not None and busio is not None and _SCD30 is not None:
+            try:
+                i2c = busio.I2C(board.SCL, board.SDA)
+                try:
+                    self.scd30 = _SCD30(i2c, 0x61)
+                except TypeError:
+                    self.scd30 = _SCD30(i2c)
+                self.scd30_detected = True
+            except Exception:
+                self.scd30 = None
+                self.scd30_detected = False
 
     def emit(self, payload: dict) -> None:
         sys.stdout.write(json.dumps(payload, separators=(",", ":")) + "\n")
@@ -269,17 +301,41 @@ class Bridge:
         self.last_status_sent = time.monotonic()
 
     def send_telemetry(self) -> None:
+        now = time.monotonic()
+
+        if self.scd30_detected and self.scd30 is not None and (now - self.scd30_last_read) >= 2.0:
+            try:
+                if getattr(self.scd30, "data_available", True):
+                    co2 = getattr(self.scd30, "CO2", None)
+                    humidity = getattr(self.scd30, "relative_humidity", None)
+                    temperature = getattr(self.scd30, "temperature", None)
+
+                    self.scd30_data["co2"] = round(float(co2), 0) if co2 is not None else None
+                    self.scd30_data["humidity"] = round(float(humidity), 1) if humidity is not None else None
+                    self.scd30_data["temperature"] = round(float(temperature), 1) if temperature is not None else None
+            except Exception:
+                self.scd30_detected = False
+            finally:
+                self.scd30_last_read = now
+
         if self.pir_enabled and GPIO is not None:
             try:
                 self.motion_state = bool(GPIO.input(int(self.pir_gpio_pin)))
             except Exception:
                 self.motion_state = False
 
+        ambient_temp = self.scd30_data["temperature"]
+        if ambient_temp is None:
+            ambient_temp = read_cpu_temp_c()
+
         telemetry = {
-            "temperature": read_cpu_temp_c(),
+            "temperature": ambient_temp,
+            "humidity": self.scd30_data["humidity"],
+            "co2": self.scd30_data["co2"],
             "lux": None,
             "motion": self.motion_state,
             "uptime": int(time.monotonic() - self.started_at),
+            "scd30Available": bool(self.scd30_detected),
             "localPi": True,
             "mock": self.mock_mode,
         }

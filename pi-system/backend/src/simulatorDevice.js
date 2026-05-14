@@ -24,6 +24,7 @@ export class SimulatorDevice {
           ds18b20: true,
           sht3x: false,
           bme280: false,
+          scd30: true,
           pir: true
         },
         pirPin: 27
@@ -42,9 +43,12 @@ export class SimulatorDevice {
     const elapsed = (Date.now() - this.startedAt) / 1000;
     const telemetry = {
       temperature: Number((22 + Math.sin(elapsed / 20) * 2.5).toFixed(1)),
+      humidity: Number((46 + Math.sin(elapsed / 14) * 7).toFixed(1)),
+      co2: Math.round(520 + Math.sin(elapsed / 18) * 120),
       lux: Math.round(280 + Math.sin(elapsed / 8) * 180),
       motion: Math.sin(elapsed / 5) > 0.55,
       uptime: Math.round(elapsed),
+      scd30Available: true,
       simulated: true
     };
     this.onTelemetry(telemetry);

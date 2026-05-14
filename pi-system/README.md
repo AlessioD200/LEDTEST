@@ -29,9 +29,14 @@ Daily update on Pi after you push to GitHub:
 
 ```bash
 cd /home/ledvives/LEDTEST
+git pull --ff-only
 chmod +x pi-system/deploy/update-from-git.sh
 ./pi-system/deploy/update-from-git.sh
 ```
+
+cd /home/ledvives/LEDTEST
+chmod +x pi-system/deploy/install-rpi3-local.sh
+./pi-system/deploy/install-rpi3-local.sh
 
 That update script does:
 

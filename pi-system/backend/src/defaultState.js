@@ -19,6 +19,8 @@ export const defaultState = {
     applied: null,
     telemetry: {
       temperature: null,
+      humidity: null,
+      co2: null,
       lux: null,
       uptime: null,
       motion: null
@@ -31,6 +33,7 @@ export const defaultState = {
       ds18b20: false,
       sht3x: false,
       bme280: false,
+      scd30: false,
       pir: false
     },
     pirPin: null

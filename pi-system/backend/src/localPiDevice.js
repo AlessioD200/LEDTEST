@@ -55,6 +55,7 @@ export class LocalPiDevice {
           ds18b20: false,
           sht3x: false,
           bme280: false,
+          scd30: false,
           pir: Number.isInteger(this.pirGpioPin)
         },
         pirPin: Number.isInteger(this.pirGpioPin) ? this.pirGpioPin : null
@@ -153,7 +154,19 @@ export class LocalPiDevice {
     }
 
     if (payload.type === "status") this.onStatus(payload.status || {});
-    if (payload.type === "telemetry") this.onTelemetry(payload.telemetry || {});
+    if (payload.type === "telemetry") {
+      const telemetry = payload.telemetry || {};
+      if (typeof telemetry.scd30Available === "boolean") {
+        this.stateStore.patch({
+          sensors: {
+            available: {
+              scd30: telemetry.scd30Available
+            }
+          }
+        });
+      }
+      this.onTelemetry(telemetry);
+    }
     if (payload.type === "heartbeat") this.onHeartbeat(payload.heartbeat || {});
     if (payload.type === "online") this.onOnline(payload);
   }

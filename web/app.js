@@ -35,6 +35,26 @@ const modeBase = {
 	custom: [255, 255, 255]
 };
 
+const MODE_ALIASES = {
+	white: "white",
+	wit: "white",
+	warm: "warm",
+	red: "red",
+	rood: "red",
+	green: "green",
+	groen: "green",
+	blue: "blue",
+	blauw: "blue",
+	purple: "purple",
+	paars: "purple",
+	cyan: "cyan",
+	yellow: "yellow",
+	geel: "yellow",
+	off: "off",
+	uit: "off",
+	custom: "custom"
+};
+
 // ─── State ────────────────────────────────────
 let state = {
 	mode:    "white",
@@ -42,6 +62,8 @@ let state = {
 	br:      50,
 	lux:     300,
 	temp:    22,
+	humidity: null,
+	co2: null,
 	motionDetected: null,
 	effects: { wave: false, pulse: false, strobe: false, rainbow: false },
 	customColor: [255, 255, 255],
@@ -51,6 +73,7 @@ let state = {
 		ds18b20: false,
 		sht3x: false,
 		bme280: false,
+		scd30: false,
 		pir: false
 	},
 	tempMode: {
@@ -58,6 +81,21 @@ let state = {
 		min: 19,
 		max: 25,
 		lastBand: null
+	},
+	humidityMode: {
+		enabled: false,
+		min: 35,
+		max: 60,
+		lastBand: null
+	},
+	co2Mode: {
+		enabled: false,
+		warn: 900,
+		high: 1200,
+		lastBand: null
+	},
+	environmentMode: {
+		lastSignature: null
 	},
 	manualTimer: {
 		active: false,
@@ -137,12 +175,410 @@ let clockTimer = {
 let updateStatusPollTimer = null;
 let customColorPushTimer = null;
 let pendingWebReload = false;
+let voiceControl = {
+	supported: false,
+	listening: false,
+	recognition: null
+};
 
 // ─── Helper ───────────────────────────────────
 const $ = id => document.getElementById(id);
 function setText(id, val) { const el = $(id); if (el) el.textContent = val; }
 function clamp(v, lo = 0, hi = 255) { return Math.max(lo, Math.min(hi, v)); }
 function pad2(v) { return String(v).padStart(2, "0"); }
+function normalizeModeKey(mode) {
+	const key = String(mode || "white").toLowerCase();
+	return MODE_ALIASES[key] || "white";
+}
+function normalizeBrightness(value, fallback = 50) {
+	const n = Number(value);
+	if (!Number.isFinite(n)) return fallback;
+	return Math.max(0, Math.min(100, Math.round(n)));
+}
+
+function formatLastSeen(lastSeenTs) {
+	const ts = Number(lastSeenTs);
+	if (!Number.isFinite(ts) || ts <= 0) return "--";
+	const diffSec = Math.max(0, Math.round((Date.now() - ts) / 1000));
+	if (diffSec < 2) return "nu";
+	if (diffSec < 60) return `${diffSec}s geleden`;
+	const diffMin = Math.round(diffSec / 60);
+	return `${diffMin}m geleden`;
+}
+
+function classifyCo2(value) {
+	if (!Number.isFinite(value)) return "unknown";
+	if (value < 800) return "good";
+	if (value < 1200) return "warn";
+	return "bad";
+}
+
+function classifyHumidity(value) {
+	if (!Number.isFinite(value)) return "unknown";
+	if (value >= 40 && value <= 60) return "good";
+	if ((value >= 35 && value < 40) || (value > 60 && value <= 65)) return "warn";
+	return "bad";
+}
+
+function applyLevelClass(element, level) {
+	if (!element) return;
+	element.classList.remove("level-good", "level-warn", "level-bad");
+	if (level === "good") element.classList.add("level-good");
+	if (level === "warn") element.classList.add("level-warn");
+	if (level === "bad") element.classList.add("level-bad");
+}
+
+function levelTag(level) {
+	if (level === "good") return "[OK]";
+	if (level === "warn") return "[WARN]";
+	if (level === "bad") return "[BAD]";
+	return "[--]";
+}
+
+function setVoiceStatus(message, tone = "") {
+	const status = $("voice-status");
+	if (!status) return;
+	status.textContent = message;
+	status.classList.remove("ok", "warn", "err");
+	if (tone === "ok") status.classList.add("ok");
+	if (tone === "warn") status.classList.add("warn");
+	if (tone === "err") status.classList.add("err");
+}
+
+function setVoiceButtonState() {
+	const btn = $("voice-btn");
+	if (!btn) return;
+	btn.classList.toggle("listening", voiceControl.listening);
+	btn.classList.toggle("unsupported", !voiceControl.supported);
+	btn.setAttribute("aria-label", voiceControl.listening ? "Stop spraakbesturing" : "Start spraakbesturing");
+	btn.title = voiceControl.listening ? "Klik om te stoppen" : "Klik en spreek commando";
+}
+
+function applyRandomColorCommand() {
+	const rgb = [
+		Math.floor(Math.random() * 256),
+		Math.floor(Math.random() * 256),
+		Math.floor(Math.random() * 256)
+	];
+	state.customColor = rgb;
+	modeBase.custom = rgb;
+	state.mode = "custom";
+	state.effects = { wave: false, pulse: false, strobe: false, rainbow: false };
+	const hex = rgbToHex(rgb);
+	const sw = $("custom-color-swatch");
+	if (sw) sw.style.background = hex;
+	const picker = $("custom-color");
+	if (picker) picker.value = hex;
+	setText("custom-color-hex", hex);
+	renderState();
+	pushDesiredState();
+}
+
+function setToggleCheckbox(id, enabled, afterChange) {
+	const el = $(id);
+	if (!el) return false;
+	el.checked = !!enabled;
+	if (typeof afterChange === "function") {
+		afterChange();
+	} else {
+		el.dispatchEvent(new Event("change", { bubbles: true }));
+	}
+	return true;
+}
+
+function parseTimerDurationCommand(text) {
+	const m = text.match(/(\d{1,3})\s*(seconde|seconden|second|seconds|minuut|minuten|minute|minutes|uur|uren|hour|hours)/);
+	if (!m) return null;
+	const amount = Math.max(1, Math.min(240, Number(m[1])));
+	const unitWord = m[2];
+	let unit = "minutes";
+	if (/seconde|second/.test(unitWord)) unit = "seconds";
+	if (/uur|hour/.test(unitWord)) unit = "hours";
+	return { amount, unit };
+}
+
+function executeVoiceCommand(transcriptRaw) {
+	const transcript = String(transcriptRaw || "").toLowerCase().trim();
+	if (!transcript) {
+		return { ok: false, message: "Geen commando gehoord" };
+	}
+
+	if (/stop luisteren|microfoon uit|stop voice/.test(transcript)) {
+		if (voiceControl.recognition) voiceControl.recognition.stop();
+		return { ok: true, message: "Voice gestopt" };
+	}
+
+	const brightnessMatch = transcript.match(/(helderheid|brightness)[^\d]{0,20}(\d{1,3})\s*%?/);
+	if (brightnessMatch) {
+		const value = Math.max(1, Math.min(100, Number(brightnessMatch[2])));
+		state.auto = false;
+		const autoLux = $("auto-lux");
+		if (autoLux) autoLux.checked = false;
+		state.br = value;
+		renderState();
+		pushDesiredState();
+		return { ok: true, message: `Helderheid ${value}%` };
+	}
+
+	if (/ander kleur|willekeur|willekeurige kleur|random kleur|verrassing/.test(transcript)) {
+		applyRandomColorCommand();
+		return { ok: true, message: "Willekeurige kleur toegepast" };
+	}
+
+	const effectMap = {
+		rainbow: "rainbow",
+		regenboog: "rainbow",
+		pulse: "pulse",
+		puls: "pulse",
+		strobe: "strobe",
+		wave: "wave",
+		golf: "wave"
+	};
+	for (const [token, effectKey] of Object.entries(effectMap)) {
+		if (transcript.includes(token)) {
+			setActiveEffect(effectKey, true);
+			renderState();
+			pushDesiredState();
+			return { ok: true, message: `Effect ${effectKey} actief` };
+		}
+	}
+
+	if (/effect uit|stop effect|geen effect/.test(transcript)) {
+		state.effects = { wave: false, pulse: false, strobe: false, rainbow: false };
+		renderState();
+		pushDesiredState();
+		return { ok: true, message: "Effecten uit" };
+	}
+
+	if (/zet aan|inschakelen|aanzetten|licht aan|power aan|\baan\b/.test(transcript) && !/auto/.test(transcript)) {
+		if (normalizeModeKey(state.mode) === "off") state.mode = "white";
+		renderState();
+		pushDesiredState();
+		return { ok: true, message: "LED aan" };
+	}
+
+	if (/zet uit|uitschakelen|uitzetten|licht uit|power uit/.test(transcript)) {
+		state.mode = "off";
+		state.effects = { wave: false, pulse: false, strobe: false, rainbow: false };
+		renderState();
+		pushDesiredState();
+		return { ok: true, message: "LED uit" };
+	}
+
+	const modeTokens = {
+		wit: "white",
+		white: "white",
+		warm: "warm",
+		rood: "red",
+		red: "red",
+		groen: "green",
+		green: "green",
+		blauw: "blue",
+		blue: "blue",
+		paars: "purple",
+		purple: "purple",
+		cyaan: "cyan",
+		cyan: "cyan",
+		geel: "yellow",
+		yellow: "yellow"
+	};
+	for (const [token, modeKey] of Object.entries(modeTokens)) {
+		if (transcript.includes(token)) {
+			state.mode = modeKey;
+			state.effects = { wave: false, pulse: false, strobe: false, rainbow: false };
+			renderState();
+			pushDesiredState();
+			return { ok: true, message: `Kleur ${token}` };
+		}
+	}
+
+	if (/auto(-| )?lux aan|sensor aan/.test(transcript)) {
+		state.auto = true;
+		setToggleCheckbox("auto-lux", true);
+		return { ok: true, message: "Auto-Lux aan" };
+	}
+
+	if (/auto(-| )?lux uit|sensor uit/.test(transcript)) {
+		state.auto = false;
+		setToggleCheckbox("auto-lux", false);
+		return { ok: true, message: "Auto-Lux uit" };
+	}
+
+	if (/lesrooster start|start lesrooster/.test(transcript)) {
+		startLessonTimerSimulation();
+		return { ok: true, message: "Lesrooster gestart" };
+	}
+
+	if (/lesrooster stop|stop lesrooster/.test(transcript)) {
+		stopLessonTimerSimulation();
+		return { ok: true, message: "Lesrooster gestopt" };
+	}
+
+	if (/timer stop|stop timer/.test(transcript)) {
+		stopManualTimer();
+		return { ok: true, message: "Timer gestopt" };
+	}
+
+	if (/start timer|timer start/.test(transcript)) {
+		const parsed = parseTimerDurationCommand(transcript);
+		if (parsed) {
+			const vEl = $("manual-timer-value");
+			const uEl = $("manual-timer-unit");
+			if (vEl) vEl.value = String(parsed.amount);
+			if (uEl) uEl.value = parsed.unit;
+		}
+		startManualTimer();
+		return { ok: true, message: "Manuele timer gestart" };
+	}
+
+	if (/kloktimer aan|dagtimer aan|schema timer aan|timer schema aan/.test(transcript)) {
+		setToggleCheckbox("timer-enabled", true, () => {
+			updateClockTimerSettingsFromUi();
+			clockTimer.lastPower = null;
+			applyClockTimerTick();
+		});
+		return { ok: true, message: "Kloktimer aan" };
+	}
+
+	if (/kloktimer uit|dagtimer uit|schema timer uit|timer schema uit/.test(transcript)) {
+		setToggleCheckbox("timer-enabled", false, () => {
+			updateClockTimerSettingsFromUi();
+			clockTimer.lastPower = null;
+			applyClockTimerTick();
+		});
+		return { ok: true, message: "Kloktimer uit" };
+	}
+
+	if (/beweging(sensor)? aan|motion aan/.test(transcript)) {
+		setToggleCheckbox("motion-enabled", true);
+		return { ok: true, message: "Bewegingssensor aan" };
+	}
+
+	if (/beweging(sensor)? uit|motion uit/.test(transcript)) {
+		setToggleCheckbox("motion-enabled", false);
+		return { ok: true, message: "Bewegingssensor uit" };
+	}
+
+	if (/temperatuur( modus)? aan|temperatuurregeling aan/.test(transcript)) {
+		setToggleCheckbox("temp-mode-enabled", true, updateTempModeSettingsFromUi);
+		return { ok: true, message: "Temperatuurmodus aan" };
+	}
+
+	if (/temperatuur( modus)? uit|temperatuurregeling uit/.test(transcript)) {
+		setToggleCheckbox("temp-mode-enabled", false, updateTempModeSettingsFromUi);
+		return { ok: true, message: "Temperatuurmodus uit" };
+	}
+
+	if (/vocht(igheid)?( modus)? aan|humidity( mode)? aan/.test(transcript)) {
+		setToggleCheckbox("humidity-mode-enabled", true, updateHumidityModeSettingsFromUi);
+		return { ok: true, message: "Vochtigheidmodus aan" };
+	}
+
+	if (/vocht(igheid)?( modus)? uit|humidity( mode)? uit/.test(transcript)) {
+		setToggleCheckbox("humidity-mode-enabled", false, updateHumidityModeSettingsFromUi);
+		return { ok: true, message: "Vochtigheidmodus uit" };
+	}
+
+	if (/co2( modus)? aan|luchtkwaliteit aan/.test(transcript)) {
+		setToggleCheckbox("co2-mode-enabled", true, updateCo2ModeSettingsFromUi);
+		return { ok: true, message: "CO2 modus aan" };
+	}
+
+	if (/co2( modus)? uit|luchtkwaliteit uit/.test(transcript)) {
+		setToggleCheckbox("co2-mode-enabled", false, updateCo2ModeSettingsFromUi);
+		return { ok: true, message: "CO2 modus uit" };
+	}
+
+	if (/dimschema aan|dim aan/.test(transcript)) {
+		setToggleCheckbox("dim-enabled", true);
+		return { ok: true, message: "Dimschema aan" };
+	}
+
+	if (/dimschema uit|dim uit/.test(transcript)) {
+		setToggleCheckbox("dim-enabled", false);
+		return { ok: true, message: "Dimschema uit" };
+	}
+
+	if (/kleurtemperatuur aan|ct aan/.test(transcript)) {
+		setToggleCheckbox("ct-enabled", true);
+		return { ok: true, message: "Kleurtemperatuur aan" };
+	}
+
+	if (/kleurtemperatuur uit|ct uit/.test(transcript)) {
+		setToggleCheckbox("ct-enabled", false);
+		return { ok: true, message: "Kleurtemperatuur uit" };
+	}
+
+	return { ok: false, message: `Onbekend commando: ${transcript}` };
+}
+
+function initVoiceControl() {
+	const btn = $("voice-btn");
+	if (!btn) return;
+
+	const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
+	if (!SpeechRecognition) {
+		voiceControl.supported = false;
+		setVoiceButtonState();
+		setVoiceStatus("Voice niet ondersteund in deze browser", "warn");
+		btn.disabled = true;
+		return;
+	}
+
+	voiceControl.supported = true;
+	const recognition = new SpeechRecognition();
+	recognition.lang = "nl-BE";
+	recognition.continuous = false;
+	recognition.interimResults = false;
+	recognition.maxAlternatives = 1;
+	voiceControl.recognition = recognition;
+
+	recognition.onstart = () => {
+		voiceControl.listening = true;
+		setVoiceButtonState();
+		setVoiceStatus("Luistert... spreek nu", "warn");
+	};
+
+	recognition.onend = () => {
+		voiceControl.listening = false;
+		setVoiceButtonState();
+		if (!$("voice-status")?.classList.contains("ok") && !$("voice-status")?.classList.contains("err")) {
+			setVoiceStatus("Voice standby", "");
+		}
+	};
+
+	recognition.onerror = (event) => {
+		voiceControl.listening = false;
+		setVoiceButtonState();
+		setVoiceStatus(`Voice fout: ${event.error}`, "err");
+	};
+
+	recognition.onresult = (event) => {
+		const text = event.results?.[0]?.[0]?.transcript || "";
+		const result = executeVoiceCommand(text);
+		if (result.ok) {
+			setVoiceStatus(`OK: ${result.message}`, "ok");
+		} else {
+			setVoiceStatus(result.message, "err");
+		}
+	};
+
+	btn.addEventListener("click", () => {
+		if (!voiceControl.supported || !voiceControl.recognition) return;
+		if (voiceControl.listening) {
+			voiceControl.recognition.stop();
+			return;
+		}
+		try {
+			voiceControl.recognition.start();
+		} catch {
+			setVoiceStatus("Kon niet starten, probeer opnieuw", "err");
+		}
+	});
+
+	setVoiceButtonState();
+	setVoiceStatus("Voice standby", "");
+}
 function formatRemaining(ms) {
 	const totalSeconds = Math.max(0, Math.ceil(ms / 1000));
 	const hours = Math.floor(totalSeconds / 3600);
@@ -319,10 +755,10 @@ function getDesiredPayload() {
 	}
 
 	return {
-		power: state.mode !== "off",
-		mode: state.mode,
+		power: normalizeModeKey(state.mode) !== "off",
+		mode: normalizeModeKey(state.mode),
 		auto: state.auto,
-		brightness: state.br,
+		brightness: Math.max(1, normalizeBrightness(state.br, 50)),
 		color,
 		effect: activeEffect ? activeEffect.key : "none",
 		timer: timerPayload
@@ -334,11 +770,13 @@ function applyBackendState(snapshot) {
 	backendSync.lastState = snapshot;
 	const desired = snapshot.desired || {};
 	const telemetry = snapshot.device?.telemetry || {};
-	state.mode = desired.mode || state.mode;
+	state.mode = normalizeModeKey(desired.mode || state.mode);
 	state.auto = !!desired.auto;
-	state.br = Number.isFinite(desired.brightness) ? desired.brightness : state.br;
+	state.br = normalizeBrightness(desired.brightness, state.br);
 	state.lux = Number.isFinite(telemetry.lux) ? telemetry.lux : state.lux;
 	state.temp = Number.isFinite(telemetry.temperature) ? telemetry.temperature : state.temp;
+	state.humidity = Number.isFinite(telemetry.humidity) ? telemetry.humidity : state.humidity;
+	state.co2 = Number.isFinite(telemetry.co2) ? telemetry.co2 : state.co2;
 	state.motionDetected = typeof telemetry.motion === "boolean" ? telemetry.motion : null;
 	state.sensorsAvailable = snapshot.sensors?.available || state.sensorsAvailable;
 	state.effects = { wave: false, pulse: false, strobe: false, rainbow: false };
@@ -406,6 +844,13 @@ function updateMotionSensorUi() {
 	el.textContent = state.motionDetected ? "Beweging gedetecteerd" : "Sensor actief, geen beweging";
 }
 
+function resetEnvironmentalModeBands() {
+	state.tempMode.lastBand = null;
+	state.humidityMode.lastBand = null;
+	state.co2Mode.lastBand = null;
+	state.environmentMode.lastSignature = null;
+}
+
 function setControlEnabled(inputId, enabled) {
 	const el = $(inputId);
 	if (!el) return;
@@ -418,6 +863,8 @@ function updateSensorCapabilityUi() {
 	const available = state.sensorsAvailable || {};
 	const hasMotion = !!available.pir;
 	const hasTemp = !!(available.ds18b20 || available.sht3x || available.bme280);
+	const hasHumidity = !!(available.sht3x || available.bme280 || available.scd30);
+	const hasCo2 = !!available.scd30;
 	const hasLux = !!(available.ldr || available.bh1750);
 
 	setControlEnabled("motion-enabled", hasMotion);
@@ -425,52 +872,135 @@ function updateSensorCapabilityUi() {
 	setControlEnabled("temp-mode-enabled", hasTemp);
 	setControlEnabled("temp-min", hasTemp);
 	setControlEnabled("temp-max", hasTemp);
+	setControlEnabled("humidity-mode-enabled", hasHumidity);
+	setControlEnabled("hum-min", hasHumidity);
+	setControlEnabled("hum-max", hasHumidity);
+	setControlEnabled("co2-mode-enabled", hasCo2);
+	setControlEnabled("co2-warn", hasCo2);
+	setControlEnabled("co2-high", hasCo2);
 	setControlEnabled("auto-lux", hasLux);
 	setControlEnabled("lux-threshold", hasLux);
 
 	const tempStatus = $("temp-mode-status");
 	if (tempStatus && !hasTemp) tempStatus.textContent = "Geen temperatuursensor gevonden";
+	const humidityStatus = $("hum-mode-status");
+	if (humidityStatus && !hasHumidity) humidityStatus.textContent = "Geen vochtigheidssensor gevonden";
+	const co2Status = $("co2-mode-status");
+	if (co2Status && !hasCo2) co2Status.textContent = "Geen CO2 sensor gevonden";
 	const motionStatus = $("motion-sensor-status");
 	if (motionStatus && !hasMotion) motionStatus.textContent = "Geen sensor gevonden";
 }
 
-function applyTemperatureModeTick() {
+function applyEnvironmentalModesTick() {
 	if (state.manualTimer.active || state.manualTimer.doneFlashUntil > Date.now() || lessonTimer.running) return;
 
-	if (!state.tempMode.enabled) {
-		state.tempMode.lastBand = null;
+	const temp = Number(state.temp);
+	const hum = Number(state.humidity);
+	const co2 = Number(state.co2);
+
+	let tempDecision = null;
+	if (state.tempMode.enabled) {
+		const tMin = Number(state.tempMode.min);
+		const tMax = Number(state.tempMode.max);
+		if (Number.isFinite(temp) && Number.isFinite(tMin) && Number.isFinite(tMax) && tMax > tMin) {
+			if (temp < tMin) tempDecision = { source: "temp", band: "cold", targetMode: "blue" };
+			else if (temp > tMax) tempDecision = { source: "temp", band: "hot", targetMode: "red" };
+			else tempDecision = { source: "temp", band: "ok", targetMode: "green" };
+		}
+
+		const statusEl = $("temp-mode-status");
+		if (statusEl) {
+			if (!Number.isFinite(temp)) statusEl.textContent = "Geen temperatuurdata";
+			else if (!tempDecision) statusEl.textContent = "Drempels ongeldig";
+			else {
+				statusEl.textContent = tempDecision.band === "cold"
+					? `Te koud (${temp.toFixed(1)}°C): blauw`
+					: tempDecision.band === "hot"
+						? `Te warm (${temp.toFixed(1)}°C): rood`
+						: `Goed (${temp.toFixed(1)}°C): groen`;
+			}
+		}
+	} else {
+		const statusEl = $("temp-mode-status");
+		if (statusEl) statusEl.textContent = "Inactief";
+	}
+
+	let humidityDecision = null;
+	if (state.humidityMode.enabled) {
+		const hMin = Number(state.humidityMode.min);
+		const hMax = Number(state.humidityMode.max);
+		if (Number.isFinite(hum) && Number.isFinite(hMin) && Number.isFinite(hMax) && hMax > hMin) {
+			if (hum < hMin) humidityDecision = { source: "humidity", band: "dry", targetMode: "yellow" };
+			else if (hum > hMax) humidityDecision = { source: "humidity", band: "humid", targetMode: "cyan" };
+			else humidityDecision = { source: "humidity", band: "ok", targetMode: "green" };
+		}
+
+		const statusEl = $("hum-mode-status");
+		if (statusEl) {
+			if (!Number.isFinite(hum)) statusEl.textContent = "Geen vochtigheidsdata";
+			else if (!humidityDecision) statusEl.textContent = "Drempels ongeldig";
+			else {
+				statusEl.textContent = humidityDecision.band === "dry"
+					? `Te droog (${hum.toFixed(1)}%): geel`
+					: humidityDecision.band === "humid"
+						? `Te vochtig (${hum.toFixed(1)}%): cyaan`
+						: `Goed (${hum.toFixed(1)}%): groen`;
+			}
+		}
+	} else {
+		const statusEl = $("hum-mode-status");
+		if (statusEl) statusEl.textContent = "Inactief";
+	}
+
+	let co2Decision = null;
+	if (state.co2Mode.enabled) {
+		const warn = Number(state.co2Mode.warn);
+		const high = Number(state.co2Mode.high);
+		if (Number.isFinite(co2) && Number.isFinite(warn) && Number.isFinite(high) && high > warn) {
+			if (co2 >= high) co2Decision = { source: "co2", band: "high", targetMode: "red" };
+			else if (co2 >= warn) co2Decision = { source: "co2", band: "warn", targetMode: "yellow" };
+			else co2Decision = { source: "co2", band: "ok", targetMode: "green" };
+		}
+
+		const statusEl = $("co2-mode-status");
+		if (statusEl) {
+			if (!Number.isFinite(co2)) statusEl.textContent = "Geen CO2 data";
+			else if (!co2Decision) statusEl.textContent = "Drempels ongeldig";
+			else {
+				statusEl.textContent = co2Decision.band === "high"
+					? `Te hoog (${Math.round(co2)} ppm): rood`
+					: co2Decision.band === "warn"
+						? `Verhoogd (${Math.round(co2)} ppm): geel`
+						: `Goed (${Math.round(co2)} ppm): groen`;
+			}
+		}
+	} else {
+		const statusEl = $("co2-mode-status");
+		if (statusEl) statusEl.textContent = "Inactief";
+	}
+
+	state.tempMode.lastBand = tempDecision?.band || null;
+	state.humidityMode.lastBand = humidityDecision?.band || null;
+	state.co2Mode.lastBand = co2Decision?.band || null;
+
+	const decision =
+		(co2Decision && co2Decision.band !== "ok" && co2Decision)
+		|| (humidityDecision && humidityDecision.band !== "ok" && humidityDecision)
+		|| (tempDecision && tempDecision.band !== "ok" && tempDecision)
+		|| co2Decision
+		|| humidityDecision
+		|| tempDecision;
+
+	if (!decision) {
+		state.environmentMode.lastSignature = null;
 		return;
 	}
 
-	const temp = Number(state.temp);
-	if (!Number.isFinite(temp)) return;
+	const signature = `${decision.source}:${decision.band}:${decision.targetMode}`;
+	if (state.environmentMode.lastSignature === signature && state.mode === decision.targetMode) return;
 
-	const tMin = Number(state.tempMode.min);
-	const tMax = Number(state.tempMode.max);
-	if (!Number.isFinite(tMin) || !Number.isFinite(tMax) || tMax <= tMin) return;
-
-	let band = "ok";
-	let targetMode = "green";
-	if (temp < tMin) {
-		band = "cold";
-		targetMode = "blue";
-	} else if (temp > tMax) {
-		band = "hot";
-		targetMode = "red";
-	}
-
-	const statusEl = $("temp-mode-status");
-	if (statusEl) {
-		statusEl.textContent = band === "cold"
-			? `Te koud (${temp.toFixed(1)}°C): blauw`
-			: band === "hot"
-				? `Te warm (${temp.toFixed(1)}°C): rood`
-				: `Goed (${temp.toFixed(1)}°C): groen`;
-	}
-
-	if (state.tempMode.lastBand === band && state.mode === targetMode) return;
-	state.tempMode.lastBand = band;
-	state.mode = targetMode;
+	state.environmentMode.lastSignature = signature;
+	state.mode = decision.targetMode;
 	state.effects = { wave: false, pulse: false, strobe: false, rainbow: false };
 	pushDesiredState();
 }
@@ -831,14 +1361,20 @@ function buildEffects() {
 //  RENDER STATE
 // ═══════════════════════════════════════════════
 function renderState() {
+	state.br = normalizeBrightness(state.br, 50);
+	const humidityText = Number.isFinite(state.humidity) ? `${state.humidity.toFixed(1)}%` : "--%";
+	const co2Text = Number.isFinite(state.co2) ? `${Math.round(state.co2)} ppm` : "-- ppm";
+
 	setText("lux-val",  `${Math.round(state.lux)} lux`);
 	setText("temp-val", `${Number(state.temp).toFixed(1)}°C`);
+	setText("hum-val", humidityText);
+	setText("co2-val", co2Text);
 	setText("mode-val", String(state.mode).toUpperCase());
 	setText("br-val",   `${state.br}%`);
 
 	// brightness slider
 	const bSlider = $("brightness");
-	if (bSlider) { bSlider.disabled = !!state.auto; bSlider.value = state.br; }
+	if (bSlider) { bSlider.disabled = !!state.auto; bSlider.value = String(Math.max(1, state.br)); }
 	setText("brightness-val", `${state.br}%`);
 	setText("brightness-val-kleur", `${state.br}%`);
 
@@ -867,6 +1403,12 @@ function renderState() {
 	setText("effects-summary", activeEffect ? activeEffect.label : "Geen actief");
 	setText("lux-meta", `Gemiddeld ${luxAverage} lux`);
 	setText("temp-meta", state.temp >= 27 ? "Boven normaal bereik" : state.temp <= 17 ? "Koele omgeving" : "Normaal bereik");
+	setText("hum-meta", Number.isFinite(state.humidity)
+		? (state.humidity < 35 ? "Lucht is droog" : state.humidity > 60 ? "Lucht is vochtig" : "Comfortabel bereik")
+		: "Geen sensorwaarde");
+	setText("co2-meta", Number.isFinite(state.co2)
+		? (state.co2 < 800 ? "Goede luchtkwaliteit" : state.co2 < 1200 ? "Matige ventilatie" : "Ventileer ruimte")
+		: "Geen sensorwaarde");
 	setText("mode-meta", activeEffect ? `Effect: ${activeEffect.label}` : "Geen effect actief");
 	setText("br-meta", `${state.auto ? "Auto-Lux" : "Handmatig"} geregeld`);
 
@@ -876,6 +1418,47 @@ function renderState() {
 	setText("status-effects", activeEffect ? activeEffect.label : "Geen actief");
 	setText("status-control", state.auto ? "Sensor" : "Handmatig");
 	setText("status-lesson", getLessonStatusShort());
+	const co2LevelForChip = classifyCo2(state.co2);
+	setText(
+		"status-air",
+		Number.isFinite(state.co2)
+			? `${levelTag(co2LevelForChip)} ${state.co2 < 800 ? "Goed" : state.co2 < 1200 ? "Matig" : "Slecht"}`
+			: "[--] Geen data"
+	);
+	applyLevelClass($("status-air"), co2LevelForChip);
+
+	const scd30Available = Boolean(state.sensorsAvailable?.scd30);
+	setText("sensor-scd30", `${scd30Available ? "[OK]" : "[BAD]"} ${scd30Available ? "Online" : "Offline"}`);
+	setText("sensor-i2c", `${scd30Available ? "[OK]" : "[BAD]"} ${scd30Available ? "0x61 actief" : "0x61 niet gevonden"}`);
+	setText("sensor-last-update", formatLastSeen(backendSync.lastState?.device?.lastSeen));
+	const co2Level = classifyCo2(state.co2);
+	const humidityLevel = classifyHumidity(state.humidity);
+	const scd30Level = scd30Available ? "good" : "bad";
+	const cardLevel = co2Level === "bad" || humidityLevel === "bad"
+		? "bad"
+		: co2Level === "warn" || humidityLevel === "warn"
+			? "warn"
+			: (co2Level === "good" || humidityLevel === "good")
+				? "good"
+				: "unknown";
+
+		setText(
+			"sensor-raw",
+			`${levelTag(cardLevel)} T: ${Number.isFinite(state.temp) ? `${state.temp.toFixed(1)}C` : "--"} | RH: ${Number.isFinite(state.humidity) ? `${state.humidity.toFixed(1)}%` : "--"} | CO2: ${Number.isFinite(state.co2) ? `${Math.round(state.co2)}ppm` : "--"}`
+		);
+
+	applyLevelClass($("sensor-scd30"), scd30Level);
+	applyLevelClass($("sensor-i2c"), scd30Level);
+	const sensorRaw = $("sensor-raw");
+	if (sensorRaw) applyLevelClass(sensorRaw, cardLevel);
+
+	const debugCard = document.querySelector(".sensor-debug-card");
+	if (debugCard) {
+		debugCard.classList.remove("level-good", "level-warn", "level-bad");
+		if (cardLevel === "good") debugCard.classList.add("level-good");
+		if (cardLevel === "warn") debugCard.classList.add("level-warn");
+		if (cardLevel === "bad") debugCard.classList.add("level-bad");
+	}
 
 	updateTempGauge(state.temp);
 	updateMotionSensorUi();
@@ -963,7 +1546,7 @@ function startManualTimer() {
 		state.mode = "white";
 	}
 	state.effects = { wave: true, pulse: false, strobe: false, rainbow: false };
-	state.tempMode.lastBand = null;
+	resetEnvironmentalModeBands();
 	clockTimer.lastPower = null;
 	pushDesiredState();
 	updateManualTimerUI();
@@ -1017,7 +1600,7 @@ function applyManualTimerTick() {
 		state.mode = "off";
 		state.effects = { wave: false, pulse: false, strobe: false, rainbow: false };
 		clockTimer.lastPower = false;
-		state.tempMode.lastBand = null;
+		resetEnvironmentalModeBands();
 		pushDesiredState();
 	}
 }
@@ -1041,10 +1624,44 @@ function updateTempModeSettingsFromUi() {
 	state.tempMode.enabled = !!enabledEl.checked;
 	state.tempMode.min = Number(minEl.value);
 	state.tempMode.max = Number(maxEl.value);
-	state.tempMode.lastBand = null;
+	resetEnvironmentalModeBands();
 
 	const statusEl = $("temp-mode-status");
 	if (statusEl && !state.tempMode.enabled) {
+		statusEl.textContent = "Inactief";
+	}
+}
+
+function updateHumidityModeSettingsFromUi() {
+	const enabledEl = $("humidity-mode-enabled");
+	const minEl = $("hum-min");
+	const maxEl = $("hum-max");
+	if (!enabledEl || !minEl || !maxEl) return;
+
+	state.humidityMode.enabled = !!enabledEl.checked;
+	state.humidityMode.min = Number(minEl.value);
+	state.humidityMode.max = Number(maxEl.value);
+	resetEnvironmentalModeBands();
+
+	const statusEl = $("hum-mode-status");
+	if (statusEl && !state.humidityMode.enabled) {
+		statusEl.textContent = "Inactief";
+	}
+}
+
+function updateCo2ModeSettingsFromUi() {
+	const enabledEl = $("co2-mode-enabled");
+	const warnEl = $("co2-warn");
+	const highEl = $("co2-high");
+	if (!enabledEl || !warnEl || !highEl) return;
+
+	state.co2Mode.enabled = !!enabledEl.checked;
+	state.co2Mode.warn = Number(warnEl.value);
+	state.co2Mode.high = Number(highEl.value);
+	resetEnvironmentalModeBands();
+
+	const statusEl = $("co2-mode-status");
+	if (statusEl && !state.co2Mode.enabled) {
 		statusEl.textContent = "Inactief";
 	}
 }
@@ -1078,7 +1695,7 @@ function applyClockTimerTick() {
 		state.mode = "off";
 		state.effects = { wave: false, pulse: false, strobe: false, rainbow: false };
 	}
-	state.tempMode.lastBand = null;
+	resetEnvironmentalModeBands();
 	pushDesiredState();
 	renderState();
 }
@@ -1096,6 +1713,7 @@ function setConn(ok, text) {
 function renderLEDFrame(t) {
 	const colors = Array.from({ length: LED_COUNT }, () => [0, 0, 0]);
 	const nowMs = Date.now();
+	const desired = backendSync.lastState?.desired || {};
 
 	if (state.manualTimer.active && state.manualTimer.endAt && state.manualTimer.durationMs > 0) {
 		const remaining = Math.max(0, state.manualTimer.endAt - nowMs);
@@ -1127,11 +1745,24 @@ function renderLEDFrame(t) {
 		return;
 	}
 
+	const normalizedMode = normalizeModeKey(desired.mode || state.mode);
+	const hasDesiredColor = desired.color
+		&& Number.isFinite(desired.color.r)
+		&& Number.isFinite(desired.color.g)
+		&& Number.isFinite(desired.color.b);
+	const powerOn = typeof desired.power === "boolean"
+		? desired.power
+		: normalizedMode !== "off";
 	const anyFX  = Object.values(state.effects).some(Boolean);
-	const rawBase = state.mode === "custom"
+	const rawBase = normalizedMode === "custom"
 		? state.customColor
-		: (modeBase[state.mode] || [0, 0, 0]);
-	const finalBr = state.auto ? Math.max(0.01, Math.min(1, state.lux / 1000)) : state.br / 100;
+		: hasDesiredColor
+			? [desired.color.r, desired.color.g, desired.color.b]
+		: (modeBase[normalizedMode] || [0, 0, 0]);
+	const baseBrightness = state.auto
+		? Math.max(0.01, Math.min(1, Number(state.lux || 0) / 1000))
+		: normalizeBrightness(state.br, 50) / 100;
+	const finalBr = powerOn ? Math.max(0.18, Math.min(1, baseBrightness)) : 0;
 	const base = rawBase.map(c => Math.floor(c * finalBr));
 	const peak = Math.max(1, rawBase[0], rawBase[1], rawBase[2]);
 	const tint = [rawBase[0] / peak, rawBase[1] / peak, rawBase[2] / peak];
@@ -1273,6 +1904,72 @@ const MODALS = {
 				arc.style.strokeDashoffset = 408 - pct * 408;
 			}
 			if (txt) txt.textContent = `${Number(state.temp).toFixed(1)}°C`;
+		}
+	},
+
+	co2: {
+		title: "CO2",
+		html() {
+			const co2 = Number.isFinite(state.co2) ? Math.round(state.co2) : null;
+			return `
+				<div class="modal-big-num">
+					<span id="m-co2-val">${co2 ?? "--"}</span>
+					<span class="modal-unit">ppm</span>
+				</div>
+				<div class="modal-stats-row">
+					<div class="modal-stat"><div class="modal-stat-label">Status</div><div class="modal-stat-val" id="m-co2-status">--</div></div>
+					<div class="modal-stat"><div class="modal-stat-label">Advies</div><div class="modal-stat-val" id="m-co2-advice">--</div></div>
+					<div class="modal-stat"><div class="modal-stat-label">Sensor</div><div class="modal-stat-val">SCD30</div></div>
+				</div>`;
+		},
+		init() {},
+		update() {
+			const co2 = Number.isFinite(state.co2) ? Math.round(state.co2) : null;
+			setText("m-co2-val", co2 ?? "--");
+			if (!Number.isFinite(state.co2)) {
+				setText("m-co2-status", "Geen data");
+				setText("m-co2-advice", "Controleer I2C/SCD30");
+				return;
+			}
+			if (state.co2 < 800) {
+				setText("m-co2-status", "Goed");
+				setText("m-co2-advice", "Ventilatie OK");
+			} else if (state.co2 < 1200) {
+				setText("m-co2-status", "Matig");
+				setText("m-co2-advice", "Ventileer binnenkort");
+			} else {
+				setText("m-co2-status", "Hoog");
+				setText("m-co2-advice", "Nu ventileren");
+			}
+		}
+	},
+
+	humidity: {
+		title: "Vochtigheid",
+		html() {
+			const humidity = Number.isFinite(state.humidity) ? state.humidity.toFixed(1) : "--";
+			return `
+				<div class="modal-big-num">
+					<span id="m-hum-val">${humidity}</span>
+					<span class="modal-unit">%</span>
+				</div>
+				<div class="modal-stats-row">
+					<div class="modal-stat"><div class="modal-stat-label">Comfort</div><div class="modal-stat-val" id="m-hum-status">--</div></div>
+					<div class="modal-stat"><div class="modal-stat-label">Richtlijn</div><div class="modal-stat-val">40-60%</div></div>
+					<div class="modal-stat"><div class="modal-stat-label">Sensor</div><div class="modal-stat-val">SCD30</div></div>
+				</div>`;
+		},
+		init() {},
+		update() {
+			const humidity = Number.isFinite(state.humidity) ? state.humidity.toFixed(1) : "--";
+			setText("m-hum-val", humidity);
+			if (!Number.isFinite(state.humidity)) {
+				setText("m-hum-status", "Geen data");
+				return;
+			}
+			if (state.humidity < 35) setText("m-hum-status", "Droog");
+			else if (state.humidity > 60) setText("m-hum-status", "Vochtig");
+			else setText("m-hum-status", "Comfortabel");
 		}
 	},
 
@@ -1750,7 +2447,7 @@ function updateLessonTimerTick() {
 		lessonTimer.lastCmdKey = cmdKey;
 		state.mode = desiredMode;
 		state.effects = desiredEffects;
-		state.tempMode.lastBand = null;
+		resetEnvironmentalModeBands();
 		pushDesiredState();
 	}
 
@@ -1781,7 +2478,7 @@ $("auto-lux").addEventListener("change", () => {
 // Brightness slider (live)
 $("brightness").addEventListener("input", () => {
 	if (state.auto) return;
-	state.br = Number($("brightness").value);
+	state.br = Math.max(1, normalizeBrightness($("brightness").value, 50));
 	setText("brightness-val", `${state.br}%`);
 	setText("brightness-val-kleur", `${state.br}%`);
 	renderState();
@@ -1865,6 +2562,36 @@ if (tempMinEl) {
 const tempMaxEl = $("temp-max");
 if (tempMaxEl) {
 	tempMaxEl.addEventListener("change", updateTempModeSettingsFromUi);
+}
+
+const humidityModeEnabledEl = $("humidity-mode-enabled");
+if (humidityModeEnabledEl) {
+	humidityModeEnabledEl.addEventListener("change", updateHumidityModeSettingsFromUi);
+}
+
+const humMinEl = $("hum-min");
+if (humMinEl) {
+	humMinEl.addEventListener("change", updateHumidityModeSettingsFromUi);
+}
+
+const humMaxEl = $("hum-max");
+if (humMaxEl) {
+	humMaxEl.addEventListener("change", updateHumidityModeSettingsFromUi);
+}
+
+const co2ModeEnabledEl = $("co2-mode-enabled");
+if (co2ModeEnabledEl) {
+	co2ModeEnabledEl.addEventListener("change", updateCo2ModeSettingsFromUi);
+}
+
+const co2WarnEl = $("co2-warn");
+if (co2WarnEl) {
+	co2WarnEl.addEventListener("change", updateCo2ModeSettingsFromUi);
+}
+
+const co2HighEl = $("co2-high");
+if (co2HighEl) {
+	co2HighEl.addEventListener("change", updateCo2ModeSettingsFromUi);
 }
 
 const timerEnabledEl = $("timer-enabled");
@@ -1963,7 +2690,7 @@ function tick() {
 		applyManualTimerTick();
 		updateLessonTimerTick();
 		applyClockTimerTick();
-		applyTemperatureModeTick();
+		applyEnvironmentalModesTick();
 		renderState();
 		renderLEDFrame(t);
 		updateModal();
@@ -2006,9 +2733,12 @@ buildLessonUI();
 initUpdateDefaults();
 updateClockTimerSettingsFromUi();
 updateTempModeSettingsFromUi();
+updateHumidityModeSettingsFromUi();
+updateCo2ModeSettingsFromUi();
 initNav();
 initChart();
 initLedCanvas();
+initVoiceControl();
 renderState();
 initBackendSync();
 fetchUpdateStatus();

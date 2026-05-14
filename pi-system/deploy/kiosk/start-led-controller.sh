@@ -5,9 +5,9 @@ set -u
 # Usage:
 #   start-led-controller.sh [KIOSK_URL]
 # Example:
-#   start-led-controller.sh http://127.0.0.1:3001/
+#   start-led-controller.sh http://127.0.0.1:3000/kiosk
 
-KIOSK_URL="${1:-http://127.0.0.1:3000/}"
+KIOSK_URL="${1:-http://127.0.0.1:3000/kiosk}"
 DISPLAY_VAL="${DISPLAY:-:0}"
 XAUTH_VAL="${XAUTHORITY:-$HOME/.Xauthority}"
 SCALE_FACTOR="${KIOSK_SCALE_FACTOR:-1.0}"

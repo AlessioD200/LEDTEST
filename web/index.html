@@ -3,6 +3,10 @@
 <head>
 	<meta charset="UTF-8" />
 	<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+	<meta name="theme-color" content="#0f172a" />
+	<link rel="preconnect" href="https://fonts.googleapis.com" />
+	<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+	<link href="https://fonts.googleapis.com/css2?family=Manrope:wght@400;500;600;700;800&family=Sora:wght@600;700;800&display=swap" rel="stylesheet" />
 	<title>LED Dashboard</title>
 	<link rel="stylesheet" href="styles.css" />
 </head>
@@ -18,6 +22,11 @@
 			</div>
 		</div>
 		<div class="topbar-right">
+			<button id="voice-btn" class="voice-btn" type="button" aria-label="Start spraakbesturing" title="Spraakbesturing">
+				<span class="voice-icon">🎙</span>
+				<span>Voice</span>
+			</button>
+			<div id="voice-status" class="voice-status">Voice uit</div>
 			<div class="status-pill">
 				<span id="conn-dot" class="dot ok"></span>
 				<span id="conn-text">Verbinden...</span>
@@ -89,6 +98,30 @@
 									<span class="stat-label">Temperatuur</span>
 									<strong class="stat-value" id="temp-val">--°C</strong>
 									<span class="stat-meta" id="temp-meta">Omgevingssensor</span>
+								</div>
+								<span class="stat-arrow">›</span>
+							</button>
+
+							<button class="stat-card clickable" data-modal="co2" aria-label="Open CO2 detail">
+								<div class="stat-icon co2-icon">
+									<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="8" cy="12" r="3"/><circle cx="16" cy="10" r="2.5"/><path d="M3 16c2.5 2.5 7 2.5 9.5 0M12 16c2 1.8 5.5 1.8 7.5 0"/></svg>
+								</div>
+								<div class="stat-info">
+									<span class="stat-label">CO2</span>
+									<strong class="stat-value" id="co2-val">-- ppm</strong>
+									<span class="stat-meta" id="co2-meta">Luchtkwaliteit</span>
+								</div>
+								<span class="stat-arrow">›</span>
+							</button>
+
+							<button class="stat-card clickable" data-modal="humidity" aria-label="Open vochtigheid detail">
+								<div class="stat-icon hum-icon">
+									<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 3s6 6 6 10a6 6 0 1 1-12 0c0-4 6-10 6-10z"/></svg>
+								</div>
+								<div class="stat-info">
+									<span class="stat-label">Vochtigheid</span>
+									<strong class="stat-value" id="hum-val">--%</strong>
+									<span class="stat-meta" id="hum-meta">Relatieve vochtigheid</span>
 								</div>
 								<span class="stat-arrow">›</span>
 							</button>
@@ -181,6 +214,24 @@
 									<span class="chip-label">Lesrooster</span>
 									<strong class="chip-val" id="status-lesson">Inactief</strong>
 								</div>
+							</div>
+
+							<div class="status-chip-sidebar">
+								<div class="chip-icon chip-air">
+									<svg viewBox="0 0 24 24" fill="currentColor"><path d="M3 12c1.2-1.6 2.6-2.4 4.2-2.4 2.4 0 3.3 1.8 5.2 1.8 1.1 0 2-.5 2.8-1.4 1.1-1.2 2.5-1.8 4-1.8 1 0 2 .3 3 .9v2.6c-.9-.8-1.8-1.2-2.8-1.2-1 0-1.8.4-2.5 1.1-1.1 1.2-2.5 1.8-4.2 1.8-2.3 0-3.2-1.8-5.2-1.8-1.1 0-2 .5-2.9 1.4L3 12zm0 5c1.2-1.6 2.6-2.4 4.2-2.4 2.4 0 3.3 1.8 5.2 1.8 1.1 0 2-.5 2.8-1.4 1.1-1.2 2.5-1.8 4-1.8 1 0 2 .3 3 .9v2.6c-.9-.8-1.8-1.2-2.8-1.2-1 0-1.8.4-2.5 1.1-1.1 1.2-2.5 1.8-4.2 1.8-2.3 0-3.2-1.8-5.2-1.8-1.1 0-2 .5-2.9 1.4L3 17z"/></svg>
+								</div>
+								<div class="chip-body">
+									<span class="chip-label">Lucht</span>
+									<strong class="chip-val" id="status-air">Geen data</strong>
+								</div>
+							</div>
+
+							<div class="sensor-debug-card" aria-live="polite">
+								<p class="sensor-debug-title">Sensor Debug</p>
+								<p class="sensor-debug-row"><span>SCD30</span><strong id="sensor-scd30">--</strong></p>
+								<p class="sensor-debug-row"><span>I2C</span><strong id="sensor-i2c">--</strong></p>
+								<p class="sensor-debug-row"><span>Laatste update</span><strong id="sensor-last-update">--</strong></p>
+								<p class="sensor-debug-raw" id="sensor-raw">T: -- | RH: -- | CO2: --</p>
 							</div>
 
 						</div>
@@ -409,6 +460,58 @@
 								</div>
 							</div>
 							<p class="small" id="temp-mode-status" style="margin-top:8px">Inactief</p>
+						</div>
+					</div>
+
+					<div class="auto-card">
+						<div class="auto-card-header">
+							<div class="auto-icon">
+								<svg viewBox="0 0 24 24" fill="currentColor"><path d="M12 2a7 7 0 0 0-7 7c0 5.25 7 13 7 13s7-7.75 7-13a7 7 0 0 0-7-7zm0 9.5A2.5 2.5 0 1 1 12 6a2.5 2.5 0 0 1 0 5.5z"/></svg>
+							</div>
+							<div class="auto-header-text">
+								<h3>Vochtigheid modus</h3>
+								<p class="small">Geel bij droog, groen in range, cyaan bij vochtig.</p>
+							</div>
+							<label class="toggle"><input type="checkbox" id="humidity-mode-enabled" /><span class="toggle-slider"></span></label>
+						</div>
+						<div class="auto-card-body">
+							<div class="time-row">
+								<div class="time-field">
+									<label class="field-label" for="hum-min">Min %</label>
+									<input type="number" id="hum-min" value="35" class="input" step="0.1" />
+								</div>
+								<div class="time-field">
+									<label class="field-label" for="hum-max">Max %</label>
+									<input type="number" id="hum-max" value="60" class="input" step="0.1" />
+								</div>
+							</div>
+							<p class="small" id="hum-mode-status" style="margin-top:8px">Inactief</p>
+						</div>
+					</div>
+
+					<div class="auto-card">
+						<div class="auto-card-header">
+							<div class="auto-icon">
+								<svg viewBox="0 0 24 24" fill="currentColor"><path d="M12 3a6 6 0 0 1 6 6c0 4.3-6 12-6 12S6 13.3 6 9a6 6 0 0 1 6-6zm0 3.5A2.5 2.5 0 1 0 12 11a2.5 2.5 0 0 0 0-4.5z"/></svg>
+							</div>
+							<div class="auto-header-text">
+								<h3>CO2 modus</h3>
+								<p class="small">Groen onder waarschuwing, geel bij waarschuwing, rood bij hoog.</p>
+							</div>
+							<label class="toggle"><input type="checkbox" id="co2-mode-enabled" /><span class="toggle-slider"></span></label>
+						</div>
+						<div class="auto-card-body">
+							<div class="time-row">
+								<div class="time-field">
+									<label class="field-label" for="co2-warn">Warn ppm</label>
+									<input type="number" id="co2-warn" value="900" class="input" step="10" min="400" />
+								</div>
+								<div class="time-field">
+									<label class="field-label" for="co2-high">Hoog ppm</label>
+									<input type="number" id="co2-high" value="1200" class="input" step="10" min="500" />
+								</div>
+							</div>
+							<p class="small" id="co2-mode-status" style="margin-top:8px">Inactief</p>
 						</div>
 					</div>
 

@@ -23,13 +23,23 @@ const transportHandlers = {
     });
   },
   onTelemetry: (telemetry) => {
-    stateStore.patch({
+    const patch = {
       device: {
         telemetry,
         lastSeen: Date.now(),
         online: true
       }
-    });
+    };
+
+    if (typeof telemetry?.scd30Available === "boolean") {
+      patch.sensors = {
+        available: {
+          scd30: telemetry.scd30Available
+        }
+      };
+    }
+
+    stateStore.patch(patch);
   },
   onHeartbeat: () => {
     stateStore.patch({ device: { online: true, lastSeen: Date.now() } });

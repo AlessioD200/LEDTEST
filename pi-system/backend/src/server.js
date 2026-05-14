@@ -12,6 +12,8 @@ function buildCompatState(state) {
   return {
     lux: Number.isFinite(telemetry.lux) ? telemetry.lux : 0,
     temp: Number.isFinite(telemetry.temperature) ? telemetry.temperature : 0,
+    humidity: Number.isFinite(telemetry.humidity) ? telemetry.humidity : 0,
+    co2: Number.isFinite(telemetry.co2) ? telemetry.co2 : 0,
     mode: desired.mode || "off",
     auto: Boolean(desired.auto),
     br: Number.isFinite(desired.brightness) ? desired.brightness : 50,
@@ -159,7 +161,9 @@ export function createServer({ config, stateStore, mqttService, scheduler }) {
     const telemetry = state?.device?.telemetry || {};
     res.json({
       lux: Number.isFinite(telemetry.lux) ? telemetry.lux : 0,
-      temp: Number.isFinite(telemetry.temperature) ? telemetry.temperature : 0
+      temp: Number.isFinite(telemetry.temperature) ? telemetry.temperature : 0,
+      humidity: Number.isFinite(telemetry.humidity) ? telemetry.humidity : 0,
+      co2: Number.isFinite(telemetry.co2) ? telemetry.co2 : 0
     });
   });
 
@@ -297,6 +301,9 @@ export function createServer({ config, stateStore, mqttService, scheduler }) {
   app.use("/touch", express.static(config.touchDashboardDir));
   app.get("/touch", (_req, res) => {
     res.sendFile(path.join(config.touchDashboardDir, "index.html"));
+  });
+  app.get("/kiosk", (_req, res) => {
+    res.sendFile(path.join(config.touchDashboardDir, "7inch-kiosk.html"));
   });
 
   if (config.webDashboardDir && fs.existsSync(config.webDashboardDir)) {

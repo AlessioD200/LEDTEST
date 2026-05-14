@@ -5,187 +5,216 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
     <title>LED Kontroler - 7" Touch</title>
     <style>
+        :root {
+            --bg: #17181d;
+            --panel: #252831;
+            --panel-2: #1c1f27;
+            --border: #3d4350;
+            --text: #f5f7fa;
+            --muted: #adb4c2;
+            --accent: #4d79ff;
+            --accent-2: #31b47a;
+            --danger: #ef4444;
+            --radius: 10px;
+            --touch-min: 56px;
+        }
+
         * {
             margin: 0;
             padding: 0;
             box-sizing: border-box;
         }
 
-        html, body {
+        html,
+        body {
             width: 100%;
             height: 100%;
-            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
-            background: #1a1a1a;
-            color: #fff;
+            font-family: "Segoe UI", -apple-system, BlinkMacSystemFont, sans-serif;
+            background: var(--bg);
+            color: var(--text);
             overflow: hidden;
             font-size: 16px;
+            touch-action: manipulation;
         }
 
         body {
             display: flex;
             flex-direction: column;
+            -webkit-user-select: none;
+            user-select: none;
+            -webkit-tap-highlight-color: transparent;
         }
 
-        /* Header */
         .header {
-            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            background: #1f2430;
+            border-bottom: 1px solid var(--border);
             padding: 12px 16px;
             display: flex;
             justify-content: space-between;
             align-items: center;
-            min-height: 60px;
+            min-height: 64px;
             flex-wrap: wrap;
             gap: 8px;
         }
 
         .header h1 {
-            font-size: 20px;
-            font-weight: 600;
+            font-size: 22px;
+            font-weight: 700;
         }
 
         .status-indicator {
             display: flex;
-            gap: 8px;
+            gap: 10px;
             align-items: center;
-            font-size: 14px;
+            font-size: 15px;
         }
 
         .indicator-dot {
-            width: 12px;
-            height: 12px;
+            width: 14px;
+            height: 14px;
             border-radius: 50%;
-            background: #4ade80;
-            animation: pulse 2s infinite;
+            background: var(--accent-2);
         }
 
         .indicator-dot.offline {
-            background: #ef4444;
-            animation: none;
+            background: var(--danger);
         }
 
-        @keyframes pulse {
-            0%, 100% { opacity: 1; }
-            50% { opacity: 0.5; }
-        }
-
-        /* Main container */
         .container {
             flex: 1;
             display: flex;
             flex-direction: column;
-            gap: 8px;
+            gap: 10px;
             padding: 12px;
             overflow-y: auto;
+            -webkit-overflow-scrolling: touch;
         }
 
-        /* Sections */
-        .section {
-            background: #2a2a2a;
-            border-radius: 8px;
+        .section,
+        .scheduler-section,
+        .led-preview-section {
+            background: var(--panel);
+            border-radius: var(--radius);
             padding: 12px;
-            border: 1px solid #444;
+            border: 1px solid var(--border);
         }
 
-        .section h2 {
+        .section h2,
+        .scheduler-section h2 {
             font-size: 16px;
             margin-bottom: 10px;
-            color: #667eea;
+            color: #8eabff;
             text-transform: uppercase;
-            letter-spacing: 0.5px;
+            letter-spacing: 0.6px;
         }
 
-        /* Power Control */
         .power-control {
             display: flex;
-            gap: 8px;
-            margin-bottom: 8px;
+            gap: 10px;
+        }
+
+        .btn-power,
+        .mode-btn,
+        .effect-btn,
+        .btn,
+        input[type="time"],
+        input[type="number"],
+        input[type="range"] {
+            touch-action: manipulation;
         }
 
         .btn-power {
             flex: 1;
-            min-height: 50px;
-            border: 2px solid #444;
-            border-radius: 8px;
-            font-size: 16px;
-            font-weight: 600;
+            min-height: var(--touch-min);
+            border: 2px solid var(--border);
+            border-radius: var(--radius);
+            font-size: 18px;
+            font-weight: 700;
             cursor: pointer;
-            transition: all 0.2s;
             text-transform: uppercase;
             letter-spacing: 0.5px;
+            background: var(--panel-2);
+            color: var(--muted);
+            transition: transform 80ms ease-out, background-color 120ms ease-out, border-color 120ms ease-out;
         }
 
         .btn-power.on {
-            background: #667eea;
-            color: white;
-            border-color: #667eea;
+            background: var(--accent-2);
+            color: #fff;
+            border-color: var(--accent-2);
         }
 
         .btn-power.off {
-            background: #2a2a2a;
-            color: #999;
-            border-color: #666;
+            background: var(--panel-2);
+            color: var(--muted);
+            border-color: #61697a;
         }
 
-        .btn-power:active {
-            transform: scale(0.98);
-        }
-
-        /* Mode Grid */
-        .mode-grid {
+        .mode-grid,
+        .effect-grid {
             display: grid;
-            grid-template-columns: repeat(2, 1fr);
-            gap: 8px;
-            margin-bottom: 8px;
+            grid-template-columns: repeat(2, minmax(0, 1fr));
+            gap: 10px;
         }
 
-        .mode-btn {
-            min-height: 50px;
-            border: 2px solid #444;
-            border-radius: 8px;
-            background: #2a2a2a;
-            color: #ccc;
-            font-size: 14px;
-            font-weight: 600;
+        .mode-btn,
+        .effect-btn {
+            min-height: var(--touch-min);
+            border: 2px solid var(--border);
+            border-radius: var(--radius);
+            background: var(--panel-2);
+            color: #c7ccda;
+            font-size: 15px;
+            font-weight: 700;
             cursor: pointer;
-            transition: all 0.2s;
             text-transform: uppercase;
-            letter-spacing: 0.5px;
+            letter-spacing: 0.4px;
+            transition: transform 80ms ease-out, background-color 120ms ease-out, border-color 120ms ease-out;
         }
 
         .mode-btn.active {
-            border-color: #667eea;
-            background: #667eea;
-            color: white;
+            border-color: var(--accent);
+            background: var(--accent);
+            color: #fff;
         }
 
-        .mode-btn:active {
+        .effect-btn.active {
+            border-color: #3f91f0;
+            background: #3f91f0;
+            color: #fff;
+        }
+
+        .btn-power:active,
+        .mode-btn:active,
+        .effect-btn:active,
+        .btn:active {
             transform: scale(0.98);
         }
 
-        /* Sliders */
         .slider-group {
-            margin-bottom: 10px;
+            margin-bottom: 4px;
         }
 
         .slider-label {
             display: flex;
             justify-content: space-between;
-            margin-bottom: 6px;
-            font-size: 14px;
-            color: #aaa;
+            margin-bottom: 10px;
+            font-size: 16px;
+            color: var(--muted);
         }
 
         .slider-value {
-            color: #667eea;
-            font-weight: 600;
+            color: #95b2ff;
+            font-weight: 700;
         }
 
         input[type="range"] {
             width: 100%;
-            height: 8px;
-            border-radius: 4px;
-            background: #444;
+            height: 12px;
+            border-radius: 6px;
+            background: #3c4352;
             outline: none;
+            border: 0;
             -webkit-appearance: none;
             appearance: none;
         }
@@ -193,81 +222,38 @@
         input[type="range"]::-webkit-slider-thumb {
             -webkit-appearance: none;
             appearance: none;
-            width: 32px;
-            height: 32px;
+            width: 34px;
+            height: 34px;
             border-radius: 50%;
-            background: #667eea;
+            background: var(--accent);
             cursor: pointer;
-            box-shadow: 0 2px 8px rgba(102, 126, 234, 0.4);
+            border: 2px solid #d6e2ff;
+            box-shadow: none;
         }
 
         input[type="range"]::-moz-range-thumb {
-            width: 32px;
-            height: 32px;
+            width: 34px;
+            height: 34px;
             border-radius: 50%;
-            background: #667eea;
+            background: var(--accent);
             cursor: pointer;
-            border: none;
-            box-shadow: 0 2px 8px rgba(102, 126, 234, 0.4);
-        }
-
-        /* Effect Grid */
-        .effect-grid {
-            display: grid;
-            grid-template-columns: repeat(2, 1fr);
-            gap: 8px;
-        }
-
-        .effect-btn {
-            min-height: 45px;
-            border: 2px solid #444;
-            border-radius: 8px;
-            background: #2a2a2a;
-            color: #ccc;
-            font-size: 13px;
-            font-weight: 600;
-            cursor: pointer;
-            transition: all 0.2s;
-        }
-
-        .effect-btn.active {
-            border-color: #764ba2;
-            background: #764ba2;
-            color: white;
-        }
-
-        .effect-btn:active {
-            transform: scale(0.98);
-        }
-
-        /* LED Preview */
-        .led-preview-section {
-            background: #1a1a1a;
-            border-radius: 8px;
-            padding: 8px;
-            margin-bottom: 8px;
+            border: 2px solid #d6e2ff;
+            box-shadow: none;
         }
 
         #ledCanvas {
             width: 100%;
-            height: 40px;
-            border: 1px solid #444;
-            border-radius: 4px;
+            height: 42px;
+            border: 1px solid var(--border);
+            border-radius: 6px;
             display: block;
-        }
-
-        /* Scheduler */
-        .scheduler-section {
-            background: #2a2a2a;
-            border-radius: 8px;
-            padding: 10px;
-            border: 1px solid #444;
+            background: #11131a;
         }
 
         .scheduler-row {
             display: flex;
-            gap: 8px;
-            margin-bottom: 8px;
+            gap: 10px;
+            margin-bottom: 10px;
         }
 
         .scheduler-row:last-child {
@@ -277,108 +263,154 @@
         input[type="time"],
         input[type="number"],
         select {
-            min-height: 44px;
-            padding: 6px 10px;
-            border: 1px solid #444;
-            border-radius: 6px;
-            background: #1a1a1a;
-            color: #fff;
-            font-size: 14px;
+            min-height: var(--touch-min);
+            padding: 6px 12px;
+            border: 1px solid var(--border);
+            border-radius: 8px;
+            background: #131722;
+            color: var(--text);
+            font-size: 17px;
+            min-width: 0;
+            flex: 1;
         }
 
         input[type="time"]::placeholder,
         input[type="number"]::placeholder {
-            color: #666;
-        }
-
-        /* Buttons */
-        .btn-group {
-            display: flex;
-            gap: 8px;
-            margin-top: 8px;
+            color: #7f8799;
         }
 
         .btn {
             flex: 1;
-            min-height: 44px;
-            border: 1px solid #444;
-            border-radius: 6px;
-            background: #667eea;
-            color: white;
-            font-size: 14px;
-            font-weight: 600;
+            min-height: var(--touch-min);
+            border: 1px solid var(--border);
+            border-radius: 8px;
+            background: var(--accent);
+            color: #fff;
+            font-size: 16px;
+            font-weight: 700;
             cursor: pointer;
-            transition: all 0.2s;
+            transition: transform 80ms ease-out, background-color 120ms ease-out;
             text-transform: uppercase;
         }
 
-        .btn:active {
-            background: #764ba2;
-            transform: scale(0.98);
-        }
-
         .btn.secondary {
-            background: #2a2a2a;
-            border-color: #667eea;
-            color: #667eea;
+            background: var(--panel-2);
+            border-color: #7395ff;
+            color: #c4d3ff;
         }
 
-        .btn.secondary:active {
-            background: #1a1a1a;
-        }
-
-        /* Connection status */
         .connection-status {
             position: fixed;
-            bottom: 12px;
-            right: 12px;
-            font-size: 12px;
-            color: #666;
-            background: rgba(0, 0, 0, 0.5);
-            padding: 6px 10px;
-            border-radius: 4px;
+            bottom: 10px;
+            right: 10px;
+            font-size: 13px;
+            color: #8f98aa;
+            background: rgba(12, 14, 20, 0.8);
+            border: 1px solid var(--border);
+            padding: 8px 12px;
+            border-radius: 6px;
         }
 
         .connection-status.connected {
-            color: #4ade80;
+            color: #6ee7a3;
         }
 
         .connection-status.error {
-            color: #ef4444;
+            color: #ff7e7e;
         }
 
-        /* Responsive */
+        .live-state {
+            display: grid;
+            grid-template-columns: repeat(2, minmax(0, 1fr));
+            gap: 8px;
+            margin-top: 10px;
+        }
+
+        .state-pill {
+            min-height: 40px;
+            padding: 8px 10px;
+            border: 1px solid var(--border);
+            border-radius: 8px;
+            background: #171b24;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            font-size: 14px;
+        }
+
+        .state-pill .value {
+            font-weight: 700;
+            color: #dce6ff;
+            text-transform: uppercase;
+        }
+
+        .state-pill .value.ok {
+            color: #6ee7a3;
+        }
+
+        .state-pill .value.off {
+            color: #ff9b9b;
+        }
+
+        .sync-badge {
+            margin-top: 10px;
+            min-height: 34px;
+            padding: 6px 10px;
+            border: 1px solid #5b6480;
+            border-radius: 8px;
+            color: #c9d4f3;
+            background: #181d2a;
+            display: inline-flex;
+            align-items: center;
+            font-size: 13px;
+            font-weight: 600;
+        }
+
+        .sync-badge.pending {
+            border-color: #f3c969;
+            color: #ffe7a9;
+        }
+
+        .sync-badge.error {
+            border-color: #ef4444;
+            color: #ffb4b4;
+        }
+
         @media (max-height: 600px) {
+            :root {
+                --touch-min: 50px;
+            }
+
             .header {
-                min-height: 50px;
+                min-height: 56px;
                 padding: 8px 12px;
             }
 
             .container {
                 padding: 8px;
-                gap: 6px;
+                gap: 8px;
             }
 
-            .section {
-                padding: 8px;
+            .section,
+            .scheduler-section,
+            .led-preview-section {
+                padding: 10px;
             }
 
-            .mode-grid,
-            .effect-grid {
-                gap: 6px;
-            }
-
-            .btn-power,
-            .mode-btn,
-            .btn {
-                min-height: 44px;
-                font-size: 14px;
+            .header h1 {
+                font-size: 19px;
             }
         }
 
-        @media (max-height: 480px) {
+        @media (max-height: 470px) {
             .scheduler-section {
                 display: none;
+            }
+        }
+
+        @media (max-width: 560px) {
+            .live-state {
+                grid-template-columns: 1fr;
             }
         }
     </style>
@@ -405,11 +437,11 @@
         <div class="section">
             <h2>Kleur</h2>
             <div class="mode-grid">
-                <button class="mode-btn" data-mode="wit">Wit</button>
-                <button class="mode-btn" data-mode="rood">Rood</button>
-                <button class="mode-btn" data-mode="groen">Groen</button>
-                <button class="mode-btn" data-mode="blauw">Blauw</button>
-                <button class="mode-btn" data-mode="paars">Paars</button>
+                <button class="mode-btn" data-mode="white">Wit</button>
+                <button class="mode-btn" data-mode="red">Rood</button>
+                <button class="mode-btn" data-mode="green">Groen</button>
+                <button class="mode-btn" data-mode="blue">Blauw</button>
+                <button class="mode-btn" data-mode="purple">Paars</button>
                 <button class="mode-btn" data-mode="cyan">Cyan</button>
             </div>
         </div>
@@ -441,6 +473,13 @@
         <!-- LED Preview -->
         <div class="led-preview-section">
             <canvas id="ledCanvas" width="100" height="40"></canvas>
+            <div class="live-state">
+                <div class="state-pill"><span>Power</span><span class="value" id="activePower">-</span></div>
+                <div class="state-pill"><span>Kleur</span><span class="value" id="activeMode">-</span></div>
+                <div class="state-pill"><span>Effect</span><span class="value" id="activeEffect">-</span></div>
+                <div class="state-pill"><span>Helder</span><span class="value" id="activeBrightness">-</span></div>
+            </div>
+            <div class="sync-badge" id="syncBadge">Status: In sync</div>
         </div>
 
         <!-- Scheduler -->
@@ -463,19 +502,110 @@
         const API_BASE = window.location.origin;
         let state = {};
         let ws = null;
-        let animationFrameId = null;
+        let pushTimer = null;
+        let pendingStateUpdate = {};
+        let reconnectDelayMs = 2000;
 
-        // ==== STATE MANAGEMENT ====
+        const ui = {
+            powerOn: document.getElementById('powerOn'),
+            powerOff: document.getElementById('powerOff'),
+            modeButtons: Array.from(document.querySelectorAll('.mode-btn')),
+            effectButtons: Array.from(document.querySelectorAll('.effect-btn')),
+            brightness: document.getElementById('brightness'),
+            brightnessValue: document.getElementById('brightnessValue'),
+            lessonStartTime: document.getElementById('lessonStartTime'),
+            lessonEndTime: document.getElementById('lessonEndTime'),
+            pauseDurationMin: document.getElementById('pauseDurationMin'),
+            saveLessonConfig: document.getElementById('saveLessonConfig'),
+            connectionStatus: document.getElementById('connectionStatus'),
+            statusDot: document.getElementById('statusDot'),
+            statusText: document.getElementById('statusText'),
+            ledCanvas: document.getElementById('ledCanvas'),
+            activePower: document.getElementById('activePower'),
+            activeMode: document.getElementById('activeMode'),
+            activeEffect: document.getElementById('activeEffect'),
+            activeBrightness: document.getElementById('activeBrightness'),
+            syncBadge: document.getElementById('syncBadge')
+        };
+
+        const MODE_MAP = {
+            white: { key: 'white', label: 'Wit', color: { r: 255, g: 255, b: 255 } },
+            warm: { key: 'warm', label: 'Warm', color: { r: 255, g: 165, b: 90 } },
+            red: { key: 'red', label: 'Rood', color: { r: 255, g: 0, b: 0 } },
+            green: { key: 'green', label: 'Groen', color: { r: 0, g: 210, b: 0 } },
+            blue: { key: 'blue', label: 'Blauw', color: { r: 0, g: 120, b: 255 } },
+            purple: { key: 'purple', label: 'Paars', color: { r: 170, g: 40, b: 220 } },
+            cyan: { key: 'cyan', label: 'Cyan', color: { r: 0, g: 220, b: 220 } },
+            yellow: { key: 'yellow', label: 'Geel', color: { r: 255, g: 220, b: 0 } },
+            off: { key: 'off', label: 'Uit', color: { r: 0, g: 0, b: 0 } }
+        };
+
+        const MODE_ALIASES = {
+            wit: 'white',
+            warm: 'warm',
+            rood: 'red',
+            groen: 'green',
+            blauw: 'blue',
+            paars: 'purple',
+            cyan: 'cyan',
+            geel: 'yellow',
+            uit: 'off',
+            white: 'white',
+            red: 'red',
+            green: 'green',
+            blue: 'blue',
+            purple: 'purple',
+            yellow: 'yellow',
+            off: 'off'
+        };
+
+        function normalizeMode(mode) {
+            const key = String(mode || 'white').toLowerCase();
+            return MODE_ALIASES[key] || 'white';
+        }
+
+        function normalizeBrightness(value, fallback = 100) {
+            const n = Number(value);
+            if (!Number.isFinite(n)) return fallback;
+            return Math.max(0, Math.min(100, Math.round(n)));
+        }
+
+        function modeLabel(mode) {
+            const normalized = normalizeMode(mode);
+            return MODE_MAP[normalized]?.label || 'Wit';
+        }
+
+        function normalizeEffect(effect) {
+            return effect === 'uit' ? 'none' : (effect || 'none');
+        }
+
+        function displayEffect(effect) {
+            return effect === 'none' ? 'Uit' : effect;
+        }
+
+        function updateSyncBadge(message, type = 'ok') {
+            ui.syncBadge.textContent = `Status: ${message}`;
+            ui.syncBadge.classList.remove('pending', 'error');
+            if (type === 'pending') ui.syncBadge.classList.add('pending');
+            if (type === 'error') ui.syncBadge.classList.add('error');
+        }
+
         async function apiRequest(endpoint, method = 'GET', data = null) {
             try {
                 const options = {
                     method,
                     headers: { 'Content-Type': 'application/json' }
                 };
-                if (data) options.body = JSON.stringify(data);
+
+                if (data) {
+                    options.body = JSON.stringify(data);
+                }
 
                 const response = await fetch(`${API_BASE}${endpoint}`, options);
-                if (!response.ok) throw new Error(`HTTP ${response.status}`);
+                if (!response.ok) {
+                    throw new Error(`HTTP ${response.status}`);
+                }
+
                 return await response.json();
             } catch (error) {
                 console.error('API Error:', error);
@@ -492,19 +622,80 @@
         }
 
         async function pushState(updates) {
-            await apiRequest('/api/command', 'POST', { desired: updates });
+            const normalized = { ...updates };
+            if (Object.prototype.hasOwnProperty.call(normalized, 'mode')) {
+                normalized.mode = normalizeMode(normalized.mode);
+            }
+            if (Object.prototype.hasOwnProperty.call(normalized, 'effect')) {
+                normalized.effect = normalizeEffect(normalized.effect);
+            }
+
+            const result = await apiRequest('/api/command', 'POST', { desired: normalized });
+            if (!result) {
+                updateSyncBadge('Versturen mislukt', 'error');
+                return null;
+            }
+
+            updateSyncBadge('In sync', 'ok');
+            return result;
         }
 
-        // ==== WEBSOCKET ====
+        async function flushStateQueue() {
+            if (!Object.keys(pendingStateUpdate).length) {
+                return;
+            }
+
+            const payload = { ...pendingStateUpdate };
+            pendingStateUpdate = {};
+
+            if (pushTimer) {
+                clearTimeout(pushTimer);
+                pushTimer = null;
+            }
+
+            updateSyncBadge('Wijziging versturen...', 'pending');
+            await pushState(payload);
+        }
+
+        function queueStateUpdate(updates, immediate = false) {
+            pendingStateUpdate = { ...pendingStateUpdate, ...updates };
+            updateSyncBadge('Wijziging klaar om te sturen', 'pending');
+
+            if (immediate) {
+                return flushStateQueue();
+            }
+
+            if (pushTimer) {
+                return null;
+            }
+
+            pushTimer = setTimeout(() => {
+                flushStateQueue();
+            }, 150);
+
+            return null;
+        }
+
+        function showTransientStatus(message, isError = false) {
+            ui.connectionStatus.textContent = message;
+            ui.connectionStatus.classList.toggle('error', isError);
+            ui.connectionStatus.classList.toggle('connected', !isError);
+            setTimeout(() => {
+                updateConnectionStatus(ws && ws.readyState === WebSocket.OPEN);
+            }, 1500);
+        }
+
         function connectWebSocket() {
             const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
             const wsUrl = `${protocol}//${API_BASE.split('//')[1]}/ws`;
 
             ws = new WebSocket(wsUrl);
             ws.onopen = () => {
+                reconnectDelayMs = 2000;
                 updateConnectionStatus(true);
                 loadState();
             };
+
             ws.onmessage = (event) => {
                 const data = JSON.parse(event.data);
                 if (data.type === 'state_update') {
@@ -512,128 +703,151 @@
                     renderUI();
                 }
             };
+
             ws.onerror = () => updateConnectionStatus(false);
             ws.onclose = () => {
                 updateConnectionStatus(false);
-                setTimeout(connectWebSocket, 3000);
+                setTimeout(connectWebSocket, reconnectDelayMs);
+                reconnectDelayMs = Math.min(reconnectDelayMs * 1.5, 8000);
             };
         }
 
         function updateConnectionStatus(connected) {
-            const statusEl = document.getElementById('connectionStatus');
-            const dotEl = document.getElementById('statusDot');
-            const textEl = document.getElementById('statusText');
-
             if (connected) {
-                statusEl.classList.remove('error');
-                statusEl.classList.add('connected');
-                statusEl.textContent = '✓ Verbonden';
-                dotEl.classList.remove('offline');
-                textEl.textContent = 'Online';
+                ui.connectionStatus.classList.remove('error');
+                ui.connectionStatus.classList.add('connected');
+                ui.connectionStatus.textContent = 'Verbonden';
+                ui.statusDot.classList.remove('offline');
+                ui.statusText.textContent = 'Online';
             } else {
-                statusEl.classList.remove('connected');
-                statusEl.classList.add('error');
-                statusEl.textContent = '✗ Verbroken';
-                dotEl.classList.add('offline');
-                textEl.textContent = 'Offline';
+                ui.connectionStatus.classList.remove('connected');
+                ui.connectionStatus.classList.add('error');
+                ui.connectionStatus.textContent = 'Verbroken';
+                ui.statusDot.classList.add('offline');
+                ui.statusText.textContent = 'Offline';
             }
         }
 
-        // ==== UI RENDERING ====
         function renderUI() {
             const desired = state.desired || {};
             const power = desired.power !== false;
+            const brightness = normalizeBrightness(desired.brightness, 100);
+            const effect = normalizeEffect(desired.effect);
+            const mode = normalizeMode(desired.mode);
 
-            // Power buttons
-            document.getElementById('powerOn').classList.toggle('on', power);
-            document.getElementById('powerOff').classList.toggle('off', !power);
+            ui.powerOn.classList.toggle('on', power);
+            ui.powerOff.classList.toggle('off', !power);
 
-            // Mode buttons
-            document.querySelectorAll('.mode-btn').forEach(btn => {
-                btn.classList.toggle('active', btn.dataset.mode === desired.mode);
+            ui.modeButtons.forEach((btn) => {
+                btn.classList.toggle('active', normalizeMode(btn.dataset.mode) === mode);
             });
 
-            // Brightness
-            document.getElementById('brightness').value = desired.brightness || 100;
-            document.getElementById('brightnessValue').textContent = `${desired.brightness || 100}%`;
+            ui.brightness.value = brightness;
+            ui.brightnessValue.textContent = `${brightness}%`;
 
-            // Effect buttons
-            document.querySelectorAll('.effect-btn').forEach(btn => {
-                btn.classList.toggle('active', btn.dataset.effect === desired.effect);
+            ui.effectButtons.forEach((btn) => {
+                const buttonEffect = normalizeEffect(btn.dataset.effect);
+                btn.classList.toggle('active', buttonEffect === effect);
             });
 
-            // LED preview
+            ui.activePower.textContent = power ? 'AAN' : 'UIT';
+            ui.activePower.classList.toggle('ok', power);
+            ui.activePower.classList.toggle('off', !power);
+            ui.activeMode.textContent = modeLabel(mode);
+            ui.activeMode.classList.add('ok');
+            ui.activeEffect.textContent = displayEffect(effect);
+            ui.activeEffect.classList.toggle('off', effect === 'none');
+            ui.activeEffect.classList.toggle('ok', effect !== 'none');
+            ui.activeBrightness.textContent = `${brightness}%`;
+            ui.activeBrightness.classList.add('ok');
+
             renderLEDPreview();
         }
 
         function renderLEDPreview() {
-            const canvas = document.getElementById('ledCanvas');
-            const ctx = canvas.getContext('2d');
+            const ctx = ui.ledCanvas.getContext('2d');
             const desired = state.desired || {};
+            const mode = normalizeMode(desired.mode);
 
-            ctx.fillStyle = '#1a1a1a';
-            ctx.fillRect(0, 0, canvas.width, canvas.height);
+            ctx.fillStyle = '#11131a';
+            ctx.fillRect(0, 0, ui.ledCanvas.width, ui.ledCanvas.height);
 
-            if (desired.power === false) return;
+            if (desired.power === false) {
+                return;
+            }
 
-            const color = desired.color || { r: 255, g: 255, b: 255 };
-            const brightness = (desired.brightness || 100) / 100;
+            const color = desired.color || MODE_MAP[mode]?.color || MODE_MAP.white.color;
+            const baseBrightness = normalizeBrightness(desired.brightness, 100) / 100;
+            const brightness = Math.max(0.2, baseBrightness);
             const r = Math.round(color.r * brightness);
             const g = Math.round(color.g * brightness);
             const b = Math.round(color.b * brightness);
 
             ctx.fillStyle = `rgb(${r}, ${g}, ${b})`;
-            ctx.fillRect(0, 0, canvas.width, canvas.height);
+            ctx.fillRect(0, 0, ui.ledCanvas.width, ui.ledCanvas.height);
         }
 
-        // ==== EVENT HANDLERS ====
-        document.getElementById('powerOn').addEventListener('click', () => {
-            pushState({ power: true });
+        ui.powerOn.addEventListener('click', () => {
+            queueStateUpdate({ power: true }, true);
         });
 
-        document.getElementById('powerOff').addEventListener('click', () => {
-            pushState({ power: false });
+        ui.powerOff.addEventListener('click', () => {
+            queueStateUpdate({ power: false }, true);
         });
 
-        document.querySelectorAll('.mode-btn').forEach(btn => {
+        ui.modeButtons.forEach((btn) => {
             btn.addEventListener('click', () => {
-                pushState({ mode: btn.dataset.mode });
+                queueStateUpdate({ mode: normalizeMode(btn.dataset.mode) }, true);
             });
         });
 
-        document.getElementById('brightness').addEventListener('input', (e) => {
-            pushState({ brightness: parseInt(e.target.value) });
+        ui.brightness.addEventListener('input', (event) => {
+            const value = parseInt(event.target.value, 10) || 0;
+            state = {
+                ...state,
+                desired: {
+                    ...(state.desired || {}),
+                    brightness: value
+                }
+            };
+            ui.brightnessValue.textContent = `${value}%`;
+            renderLEDPreview();
+            queueStateUpdate({ brightness: value }, false);
         });
 
-        document.querySelectorAll('.effect-btn').forEach(btn => {
+        ui.brightness.addEventListener('change', (event) => {
+            const value = parseInt(event.target.value, 10) || 0;
+            queueStateUpdate({ brightness: value }, true);
+        });
+
+        ui.effectButtons.forEach((btn) => {
             btn.addEventListener('click', () => {
-                pushState({ effect: btn.dataset.effect });
+                queueStateUpdate({ effect: btn.dataset.effect }, true);
             });
         });
 
-        document.getElementById('saveLessonConfig').addEventListener('click', async () => {
-            const startTime = document.getElementById('lessonStartTime').value;
-            const endTime = document.getElementById('lessonEndTime').value;
-            const pauseMin = parseInt(document.getElementById('pauseDurationMin').value) || 15;
+        ui.saveLessonConfig.addEventListener('click', async () => {
+            const startTime = ui.lessonStartTime.value;
+            const endTime = ui.lessonEndTime.value;
+            const pauseMin = parseInt(ui.pauseDurationMin.value, 10) || 15;
 
-            if (startTime && endTime) {
-                await pushState({
-                    pauseDurationMinutes: pauseMin
-                });
-
-                // Save scheduler config
-                await apiRequest('/api/command', 'POST', {
-                    schedulerConfig: {
-                        lessonStart: startTime,
-                        lessonEnd: endTime
-                    }
-                });
-
-                alert('Instellingen opgeslagen!');
+            if (!startTime || !endTime) {
+                showTransientStatus('Vul start en einde in', true);
+                return;
             }
+
+            await queueStateUpdate({ pauseDurationMinutes: pauseMin }, true);
+
+            const result = await apiRequest('/api/command', 'POST', {
+                schedulerConfig: {
+                    lessonStart: startTime,
+                    lessonEnd: endTime
+                }
+            });
+
+            showTransientStatus(result ? 'Instellingen opgeslagen' : 'Opslaan mislukt', !result);
         });
 
-        // ==== INIT ====
         connectWebSocket();
         loadState();
     </script>
