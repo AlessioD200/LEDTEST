@@ -1,5 +1,5 @@
 from machine import Pin, SPI, ADC
-import apa102, socket, time, random, onewire, ds18x20, json, os, gc
+import apa102, socket, time, random, onewire, ds18x20, json, os, gc, struct
 try:
     from machine import I2C
 except:
@@ -20,12 +20,20 @@ try:
 except:
     machine = None
 
+try:
+    import network
+except:
+    network = None
+
 # --- 1. CONFIG ---
 NUM_LEDS = 140
 spi = SPI(1, baudrate=2000000, sck=Pin(5), mosi=Pin(18))
 strip = apa102.APA102(spi, NUM_LEDS)
 ldr = ADC(Pin(34))
 ldr.atten(ADC.ATTN_11DB)
+# Most LDR divider builds on ESP32 increase ADC value when light increases.
+# Set to True only if your wiring is reversed.
+LDR_INVERT = False
 
 # DS18B20 Temperature Sensor
 DATA_PIN = 4
@@ -60,7 +68,13 @@ for _pin in PIR_CANDIDATE_PINS:
     except:
         pass
 pir_selected_pin = None
-pir_high_counter = 0
+pir_high_counters = {}
+for _pin, _ in pir_candidates:
+    pir_high_counters[_pin] = 0
+
+SCD30_ADDR = 0x61
+scd30_present = (SCD30_ADDR in i2c_addrs)
+scd30_started = False
 
 # --- 2. STATE ---
 mode = "white"
@@ -68,13 +82,18 @@ auto_light = False
 offset = 0.0
 smooth_val = 2000.0
 perc_val = 50
+lux_raw = 0
 temp_val = 20.0
+humidity_val = None
+co2_val = None
 sensor_buffer = [2000.0] * 10
 global_br = 0.5
 custom_color = (255, 255, 255)
 motion_detected = None
 lux_source = "ldr"
 temp_source = "none"
+humidity_source = "none"
+co2_source = "none"
 lightshow_active = {}
 lightshow_start_times = {}
 lightshow_last_trigger = 0
@@ -130,25 +149,26 @@ sensor_registry = {
     "bh1750": (0x23 in i2c_addrs) or (0x5C in i2c_addrs),
     "bme280": (0x76 in i2c_addrs) or (0x77 in i2c_addrs),
     "sht3x": (0x44 in i2c_addrs) or (0x45 in i2c_addrs),
+    "scd30": scd30_present,
     "pir": False,
 }
 
 
 def detect_motion_sensor():
-    global pir_selected_pin, pir_high_counter
+    global pir_selected_pin
     if pir_selected_pin is not None:
         return
     # Best-effort auto detect: if one candidate pin reads HIGH repeatedly, assume PIR is connected there.
     for pin_no, pin_obj in pir_candidates:
         try:
             if pin_obj.value():
-                pir_high_counter += 1
-                if pir_high_counter >= 3:
+                pir_high_counters[pin_no] = pir_high_counters.get(pin_no, 0) + 1
+                if pir_high_counters[pin_no] >= 3:
                     pir_selected_pin = pin_no
                     sensor_registry["pir"] = True
                     break
             else:
-                pir_high_counter = 0
+                pir_high_counters[pin_no] = 0
         except:
             pass
 
@@ -183,21 +203,28 @@ def read_bh1750_lux():
         return None
 
 
-def read_sht3x_temp():
+def read_sht3x_measurement():
     if i2c is None:
-        return None
+        return None, None
     addr = 0x44 if 0x44 in i2c_addrs else (0x45 if 0x45 in i2c_addrs else None)
     if addr is None:
-        return None
+        return None, None
     try:
         i2c.writeto(addr, b"\x24\x00")
         time.sleep_ms(20)
         data = i2c.readfrom(addr, 6)
         raw_t = (data[0] << 8) | data[1]
+        raw_h = (data[3] << 8) | data[4]
         temp_c = -45 + (175 * raw_t / 65535.0)
-        return temp_c
+        hum = 100 * raw_h / 65535.0
+        return temp_c, hum
     except:
-        return None
+        return None, None
+
+
+def read_sht3x_temp():
+    temp_c, _ = read_sht3x_measurement()
+    return temp_c
 
 
 def read_bme280_temp():
@@ -217,6 +244,97 @@ def read_bme280_temp():
         return None
     except:
         return None
+
+
+def _scd30_crc_ok(two_bytes, crc_byte):
+    crc = 0xFF
+    for byte in two_bytes:
+        crc ^= byte
+        for _ in range(8):
+            if crc & 0x80:
+                crc = ((crc << 1) ^ 0x31) & 0xFF
+            else:
+                crc = (crc << 1) & 0xFF
+    return crc == crc_byte
+
+
+def _scd30_write_command(cmd, arg=None):
+    if i2c is None or not scd30_present:
+        return False
+    try:
+        payload = bytes([(cmd >> 8) & 0xFF, cmd & 0xFF])
+        if arg is not None:
+            b1 = (arg >> 8) & 0xFF
+            b2 = arg & 0xFF
+            crc = 0xFF
+            for byte in (b1, b2):
+                crc ^= byte
+                for _ in range(8):
+                    if crc & 0x80:
+                        crc = ((crc << 1) ^ 0x31) & 0xFF
+                    else:
+                        crc = (crc << 1) & 0xFF
+            payload += bytes([b1, b2, crc])
+        i2c.writeto(SCD30_ADDR, payload)
+        return True
+    except:
+        return False
+
+
+def _scd30_read_words(cmd, word_count, wait_ms=4):
+    if not _scd30_write_command(cmd):
+        return None
+    try:
+        time.sleep_ms(wait_ms)
+        raw = i2c.readfrom(SCD30_ADDR, word_count * 3)
+        out = bytearray(word_count * 2)
+        oi = 0
+        for i in range(0, len(raw), 3):
+            b1 = raw[i]
+            b2 = raw[i + 1]
+            crc = raw[i + 2]
+            if not _scd30_crc_ok((b1, b2), crc):
+                return None
+            out[oi] = b1
+            out[oi + 1] = b2
+            oi += 2
+        return out
+    except:
+        return None
+
+
+def ensure_scd30_started():
+    global scd30_started
+    if scd30_started or not scd30_present:
+        return
+    # 0 mbar pressure compensation = disabled (normal mode).
+    if _scd30_write_command(0x0010, 0):
+        scd30_started = True
+
+
+def read_scd30_measurement():
+    if i2c is None or not scd30_present:
+        return None, None, None
+
+    ensure_scd30_started()
+    ready_words = _scd30_read_words(0x0202, 1)
+    if not ready_words:
+        return None, None, None
+    ready_val = (ready_words[0] << 8) | ready_words[1]
+    if ready_val == 0:
+        return None, None, None
+
+    data = _scd30_read_words(0x0300, 6, wait_ms=6)
+    if not data or len(data) != 12:
+        return None, None, None
+
+    try:
+        co2 = struct.unpack(">f", bytes(data[0:4]))[0]
+        temp_c = struct.unpack(">f", bytes(data[4:8]))[0]
+        hum = struct.unpack(">f", bytes(data[8:12]))[0]
+        return co2, temp_c, hum
+    except:
+        return None, None, None
 
 
 def clamp_int(value, low, high):
@@ -271,15 +389,21 @@ def parse_url(url):
 
 
 def sock_read(sock, n=512):
+    # Prefer recv for sockets; read() can block unexpectedly on some MicroPython builds.
+    if hasattr(sock, "recv"):
+        return sock.recv(n)
     if hasattr(sock, "read"):
         return sock.read(n)
-    return sock.recv(n)
+    return b""
 
 
 def sock_write(sock, data):
+    # Prefer send for sockets; write() compatibility differs across ports.
+    if hasattr(sock, "send"):
+        return sock.send(data)
     if hasattr(sock, "write"):
         return sock.write(data)
-    return sock.send(data)
+    return 0
 
 
 def sock_readline(sock):
@@ -658,35 +782,121 @@ def get_html():
     return FALLBACK_HTML
 
 # --- 4. SERVER ---
-s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-s.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
-s.bind(('', 80))
-s.listen(3)
-s.settimeout(0.01)
+SERVER_PORT_CANDIDATES = [80, 8080, 5000]
+
+
+def create_http_server():
+    last_error = None
+    for port in SERVER_PORT_CANDIDATES:
+        srv = None
+        try:
+            srv = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+            srv.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+            srv.bind(('', port))
+            srv.listen(3)
+            srv.settimeout(0.1)
+            return srv, port
+        except Exception as e:
+            last_error = e
+            try:
+                if srv is not None:
+                    srv.close()
+            except:
+                pass
+            gc.collect()
+            time.sleep_ms(120)
+
+    raise OSError("HTTP bind failed: {}".format(last_error))
+
+
+s, SERVER_PORT = create_http_server()
+
+
+def _get_sta_ip():
+    if network is None:
+        return "unknown"
+    try:
+        sta = network.WLAN(network.STA_IF)
+        if sta.active() and sta.isconnected():
+            return sta.ifconfig()[0]
+    except:
+        pass
+    return "unknown"
+
+
+print("HTTP server listening on http://{}:{}/".format(_get_sta_ip(), SERVER_PORT))
 
 
 def send_json(conn, data):
-    body = json.dumps(data)
-    conn.send(b'HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nAccess-Control-Allow-Origin: *\r\n\r\n')
-    conn.send(body.encode())
+    body = json.dumps(data).encode()
+    header = (
+        b'HTTP/1.1 200 OK\r\n'
+        b'Content-Type: application/json\r\n'
+        b'Access-Control-Allow-Origin: *\r\n'
+        b'Connection: close\r\n'
+        b'Content-Length: ' + str(len(body)).encode() + b'\r\n\r\n'
+    )
+    socket_sendall(conn, header)
+    socket_sendall(conn, body)
 
 
 def send_forbidden(conn, msg="Forbidden"):
-    body = json.dumps({"ok": False, "error": msg})
-    conn.send(b'HTTP/1.1 403 Forbidden\r\nContent-Type: application/json\r\n\r\n')
-    conn.send(body.encode())
+    body = json.dumps({"ok": False, "error": msg}).encode()
+    header = (
+        b'HTTP/1.1 403 Forbidden\r\n'
+        b'Content-Type: application/json\r\n'
+        b'Connection: close\r\n'
+        b'Content-Length: ' + str(len(body)).encode() + b'\r\n\r\n'
+    )
+    socket_sendall(conn, header)
+    socket_sendall(conn, body)
 
 
 def send_ok(conn):
-    conn.send(b'HTTP/1.1 200 OK\r\nContent-Length: 2\r\n\r\nOK')
+    socket_sendall(conn, b'HTTP/1.1 200 OK\r\nConnection: close\r\nContent-Length: 2\r\n\r\nOK')
+
+
+def send_text(conn, text):
+    body = str(text).encode()
+    header = (
+        b'HTTP/1.1 200 OK\r\n'
+        b'Content-Type: text/plain; charset=utf-8\r\n'
+        b'Connection: close\r\n'
+        b'Content-Length: ' + str(len(body)).encode() + b'\r\n\r\n'
+    )
+    socket_sendall(conn, header)
+    socket_sendall(conn, body)
 
 
 def send_html(conn):
     html = get_html()
-    conn.send(b'HTTP/1.1 200 OK\r\nContent-Type: text/html; charset=utf-8\r\n\r\n')
+    body = html.encode()
+    header = (
+        b'HTTP/1.1 200 OK\r\n'
+        b'Content-Type: text/html; charset=utf-8\r\n'
+        b'Connection: close\r\n'
+        b'Content-Length: ' + str(len(body)).encode() + b'\r\n\r\n'
+    )
+    socket_sendall(conn, header)
     chunk = 1024
-    for i in range(0, len(html), chunk):
-        conn.send(html[i:i + chunk].encode())
+    for i in range(0, len(body), chunk):
+        socket_sendall(conn, body[i:i + chunk])
+
+
+def socket_sendall(conn, data):
+    if not data:
+        return
+    total = 0
+    length = len(data)
+    # Chunked send avoids memoryview/socket incompatibilities on some ESP32 builds.
+    while total < length:
+        part = data[total:total + 512]
+        sent = sock_write(conn, part)
+        if sent is None:
+            sent = len(part)
+        if sent <= 0:
+            raise OSError("socket send failed")
+        total += sent
 
 
 def send_static_for_path(conn, path):
@@ -705,12 +915,12 @@ def send_static_for_path(conn, path):
 
         try:
             header = "HTTP/1.1 200 OK\r\nContent-Type: {}\r\nCache-Control: no-store\r\nPragma: no-cache\r\n\r\n".format(content_type)
-            conn.send(header.encode())
+            socket_sendall(conn, header.encode())
             while True:
                 chunk = f.read(1024)
                 if not chunk:
                     break
-                conn.send(chunk)
+                socket_sendall(conn, chunk)
             return True
         except:
             pass
@@ -766,12 +976,18 @@ def build_state_payload():
         },
         "device": {
             "online": True,
+            "lastSeen": int(time.time() * 1000),
             "telemetry": {
                 "lux": perc_val,
+                "luxRaw": lux_raw,
                 "temperature": round(temp_val, 1),
+                "humidity": round(humidity_val, 1) if humidity_val is not None else None,
+                "co2": round(co2_val, 1) if co2_val is not None else None,
                 "motion": motion_detected,
                 "luxSource": lux_source,
                 "tempSource": temp_source,
+                "humiditySource": humidity_source,
+                "co2Source": co2_source,
             },
         },
         "sensors": {
@@ -810,6 +1026,59 @@ def parse_request(req):
     if '\r\n\r\n' in req:
         body = req.split('\r\n\r\n', 1)[1]
     return method, path, body
+
+
+def read_http_request(conn, max_header=4096, max_body=8192):
+    data = b""
+
+    # Read until headers are complete.
+    while b"\r\n\r\n" not in data and len(data) < max_header:
+        try:
+            chunk = sock_read(conn, 512)
+        except:
+            break
+        if not chunk:
+            break
+        data += chunk
+
+    if not data:
+        return ""
+
+    # Wait for full headers; otherwise request is incomplete.
+    if b"\r\n\r\n" not in data:
+        return ""
+
+    header_part, body_part = data.split(b"\r\n\r\n", 1)
+    header_text = header_part.decode("utf-8", "ignore")
+    lines = header_text.split("\r\n")
+    content_len = 0
+    for line in lines[1:]:
+        if ":" not in line:
+            continue
+        k, v = line.split(":", 1)
+        if k.strip().lower() == "content-length":
+            try:
+                content_len = int(v.strip())
+            except:
+                content_len = 0
+            break
+
+    if content_len < 0:
+        content_len = 0
+    if content_len > max_body:
+        content_len = max_body
+
+    while len(body_part) < content_len:
+        try:
+            chunk = sock_read(conn, min(512, content_len - len(body_part)))
+        except:
+            break
+        if not chunk:
+            break
+        body_part += chunk
+
+    req_bytes = header_part + b"\r\n\r\n" + body_part[:content_len]
+    return req_bytes.decode("utf-8", "ignore")
 
 
 def apply_command_payload(payload):
@@ -872,6 +1141,9 @@ def apply_command_payload(payload):
 
 
 # --- 5. MAIN LOOP ---
+sensor_err_count = 0
+http_err_count = 0
+render_err_count = 0
 while True:
 
     # 5a. SENSORS
@@ -879,10 +1151,14 @@ while True:
         detect_motion_sensor()
 
         val_raw = ldr.read()
+        lux_raw = val_raw
         sensor_buffer.append(val_raw)
         sensor_buffer.pop(0)
         smooth_val = sum(sensor_buffer) / len(sensor_buffer)
-        perc_val = int(((4095 - smooth_val) / 4095) * 100)
+        if LDR_INVERT:
+            perc_val = int(((4095 - smooth_val) / 4095) * 100)
+        else:
+            perc_val = int((smooth_val / 4095) * 100)
         perc_val = max(0, min(100, perc_val))
 
         # Optional digital motion read
@@ -909,6 +1185,20 @@ while True:
         if temp_read_counter >= 75:
             temp_read_counter = 0
             temp_source = "none"
+            humidity_source = "none"
+            co2_source = "none"
+
+            co2_scd, t_scd, h_scd = read_scd30_measurement()
+            if co2_scd is not None:
+                co2_val = max(300.0, min(10000.0, co2_scd))
+                co2_source = "scd30"
+            if h_scd is not None:
+                humidity_val = max(0.0, min(100.0, h_scd))
+                humidity_source = "scd30"
+            if t_scd is not None:
+                temp_val = max(-40.0, min(125.0, t_scd))
+                temp_source = "scd30"
+
             if temp_roms:
                 try:
                     ds.convert_temp()
@@ -920,32 +1210,59 @@ while True:
                         break
                 except:
                     pass
-            if temp_source == "none":
-                t_sht = read_sht3x_temp()
-                if t_sht is not None:
-                    temp_val = max(-40, min(125, t_sht))
-                    temp_source = "sht3x"
+
+            t_sht = None
+            h_sht = None
+            if humidity_source == "none" or temp_source == "none":
+                t_sht, h_sht = read_sht3x_measurement()
+
+            if humidity_source == "none" and h_sht is not None:
+                humidity_val = max(0.0, min(100.0, h_sht))
+                humidity_source = "sht3x"
+
+            if temp_source == "none" and t_sht is not None:
+                temp_val = max(-40, min(125, t_sht))
+                temp_source = "sht3x"
             if temp_source == "none":
                 t_bme = read_bme280_temp()
                 if t_bme is not None:
                     temp_val = max(-40, min(125, t_bme))
                     temp_source = "bme280"
-    except:
-        pass
+    except Exception as e:
+        sensor_err_count += 1
+        if sensor_err_count <= 5:
+            print("[sensor]", e)
 
     # 5b. HTTP SERVER
     try:
         conn, addr = s.accept()
         try:
-            req = conn.recv(2048).decode("utf-8", "ignore")
+            try:
+                conn.settimeout(0.3)
+            except:
+                pass
+            req = read_http_request(conn)
+            if not req:
+                conn.close()
+                continue
             method, path, body = parse_request(req)
             route_path = path.split("?")[0]
+
+            if route_path == "/ping":
+                send_text(conn, "pong")
+                continue
 
             if method == "GET" and send_static_for_path(conn, route_path):
                 pass
 
             elif route_path == "/api/sensor":
-                send_json(conn, {"lux": perc_val, "temp": round(temp_val, 1)})
+                send_json(conn, {
+                    "lux": perc_val,
+                    "luxRaw": lux_raw,
+                    "temp": round(temp_val, 1),
+                    "humidity": round(humidity_val, 1) if humidity_val is not None else None,
+                    "co2": round(co2_val, 1) if co2_val is not None else None,
+                })
 
             elif route_path == "/api/state":
                 send_json(conn, build_state_payload())
@@ -1071,8 +1388,20 @@ while True:
                 send_html(conn)
         finally:
             conn.close()
-    except:
-        pass
+    except Exception as e:
+        err_no = None
+        try:
+            err_no = e.args[0]
+        except:
+            err_no = None
+
+        # EAGAIN (11) is expected with short socket accept timeout.
+        if err_no in (11,):
+            pass
+        else:
+            http_err_count += 1
+            if http_err_count <= 5:
+                print("[http]", e)
 
     # 5b.1 Background OTA job runner
     try:
@@ -1213,7 +1542,10 @@ while True:
                 strip[i] = c
             strip.write()
 
-    except:
+    except Exception as e:
+        render_err_count += 1
+        if render_err_count <= 5:
+            print("[render]", e)
         lightshow_active.clear()
         lightshow_start_times.clear()
 

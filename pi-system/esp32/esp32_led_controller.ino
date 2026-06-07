@@ -3,6 +3,32 @@
 #include <ArduinoJson.h>
 #include <FastLED.h>
 
+// Enable sensor support by setting these to 1 and installing the matching
+// Arduino libraries. Leave 0 to disable and avoid compile-time deps.
+#define USE_BME280 0
+#define USE_BH1750 0
+#define USE_DS18B20 0
+#define USE_SCD30 0
+#define PIR_PIN -1
+
+#if USE_BME280
+#include <Wire.h>
+#include <Adafruit_Sensor.h>
+#include <Adafruit_BME280.h>
+#endif
+#if USE_BH1750
+#include <Wire.h>
+#include <BH1750.h>
+#endif
+#if USE_DS18B20
+#include <OneWire.h>
+#include <DallasTemperature.h>
+#endif
+#if USE_SCD30
+#include <Wire.h>
+#include <Adafruit_SCD30.h>
+#endif
+
 #define LED_PIN 5
 #define LED_COUNT 140
 #define LED_TYPE WS2812B
@@ -37,6 +63,27 @@ struct DesiredState {
 
 unsigned long lastHeartbeatMs = 0;
 unsigned long heartbeatEveryMs = 3000;
+unsigned long telemetryEveryMs = 2000;
+unsigned long lastTelemetryMs = 0;
+
+#if USE_BME280
+Adafruit_BME280 bme;
+bool bmeAvailable = false;
+#endif
+#if USE_BH1750
+BH1750 lightMeter;
+bool bhAvailable = false;
+#endif
+#if USE_DS18B20
+OneWire oneWire(4); // change pin as needed
+DallasTemperature ds18(oneWire);
+bool dsAvailable = false;
+#endif
+#if USE_SCD30
+Adafruit_SCD30 scd30;
+bool scd30Available = false;
+#endif
+bool pirAvailable = false;
 
 CRGB modeColor(const String& mode) {
   if (mode == "red") return CRGB::Red;
@@ -79,6 +126,70 @@ void publishHeartbeat() {
   char out[128];
   serializeJson(doc, out);
   mqtt.publish(TOPIC_HEART.c_str(), out, false);
+}
+
+void publishTelemetry() {
+  StaticJsonDocument<256> doc;
+
+#if USE_BME280
+  if (bmeAvailable) {
+    doc["temperature"] = bme.readTemperature();
+    doc["humidity"] = bme.readHumidity();
+    doc["pressure"] = bme.readPressure() / 100.0F;
+  } else {
+    doc["temperature"] = nullptr;
+    doc["humidity"] = nullptr;
+    doc["pressure"] = nullptr;
+  }
+#else
+  doc["temperature"] = nullptr;
+  doc["humidity"] = nullptr;
+  doc["pressure"] = nullptr;
+#endif
+
+#if USE_BH1750
+  if (bhAvailable) doc["lux"] = lightMeter.readLightLevel();
+  else doc["lux"] = nullptr;
+#else
+  doc["lux"] = nullptr;
+#endif
+
+#if USE_DS18B20
+  if (dsAvailable) {
+    ds18.requestTemperatures();
+    doc["ds18_temp"] = ds18.getTempCByIndex(0);
+  } else {
+    doc["ds18_temp"] = nullptr;
+  }
+#else
+  doc["ds18_temp"] = nullptr;
+#endif
+
+#if USE_SCD30
+  if (scd30Available && scd30.dataAvailable()) {
+    doc["co2"] = scd30.CO2;
+    doc["scd30Available"] = true;
+    doc["humidity_scd"] = scd30.relative_humidity;
+    doc["temperature_scd"] = scd30.temperature;
+  } else {
+    doc["co2"] = nullptr;
+    doc["scd30Available"] = false;
+  }
+#else
+  doc["co2"] = nullptr;
+  doc["scd30Available"] = false;
+#endif
+
+  if (pirAvailable && PIR_PIN >= 0) {
+    doc["motion"] = digitalRead(PIR_PIN) == HIGH;
+  } else {
+    doc["motion"] = nullptr;
+  }
+
+  doc["uptime"] = millis();
+  char out[256];
+  serializeJson(doc, out);
+  mqtt.publish(TOPIC_TELE.c_str(), out, false);
 }
 
 void applyLedState() {
@@ -187,6 +298,24 @@ void setup() {
   FastLED.addLeds<LED_TYPE, LED_PIN, COLOR_ORDER>(leds, LED_COUNT);
   FastLED.clear(true);
 
+#if USE_BME280
+  if (bme.begin(0x76) || bme.begin(0x77)) bmeAvailable = true;
+#endif
+#if USE_BH1750
+  if (lightMeter.begin(BH1750::CONTINUOUS_HIGH_RES_MODE)) bhAvailable = true;
+#endif
+#if USE_DS18B20
+  ds18.begin();
+  dsAvailable = true;
+#endif
+#if USE_SCD30
+  if (scd30.begin()) scd30Available = true;
+#endif
+  if (PIR_PIN >= 0) {
+    pinMode(PIR_PIN, INPUT);
+    pirAvailable = true;
+  }
+
   connectWiFi();
   mqtt.setServer(MQTT_HOST, MQTT_PORT);
   mqtt.setCallback(mqttCallback);
@@ -203,5 +332,10 @@ void loop() {
   if (millis() - lastHeartbeatMs >= heartbeatEveryMs) {
     lastHeartbeatMs = millis();
     publishHeartbeat();
+  }
+
+  if (millis() - lastTelemetryMs >= telemetryEveryMs) {
+    lastTelemetryMs = millis();
+    publishTelemetry();
   }
 }
